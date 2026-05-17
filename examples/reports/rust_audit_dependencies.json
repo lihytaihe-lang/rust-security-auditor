@@ -1,0 +1,168 @@
+{
+  "tool": "rust_audit_dependencies",
+  "isError": false,
+  "structuredContent": {
+    "tool": "rust_audit_dependencies",
+    "projectPath": "<repo>/test/fixtures/dependency-risk",
+    "summary": {
+      "findingCount": 7,
+      "suppressedCount": 0,
+      "severityCounts": {
+        "info": 0,
+        "low": 1,
+        "medium": 5,
+        "high": 1,
+        "critical": 0
+      },
+      "categoryCounts": {
+        "unsafe": 0,
+        "ffi": 0,
+        "dependency": 1,
+        "supply_chain": 5,
+        "command_execution": 1,
+        "filesystem": 0,
+        "input_boundary": 0,
+        "concurrency": 0,
+        "secret": 0,
+        "panic_dos": 0,
+        "manual_review": 0
+      },
+      "riskLevel": "high_risk"
+    },
+    "findings": [
+      {
+        "id": "RSA-BUILD-COMMAND-8C9A005B",
+        "ruleId": "RSA-BUILD-COMMAND",
+        "title": "Build script spawns an external command",
+        "severity": "high",
+        "confidence": "high",
+        "category": "command_execution",
+        "file": "build.rs",
+        "evidence": [
+          "Line 4: let _ = Command::new(\"sh\").arg(\"-c\").arg(\"cc native.c\").status();"
+        ],
+        "whyItMatters": "External commands in build.rs execute with build-host privileges and inherit the build environment by default.",
+        "riskScenario": "An attacker controls the invoked binary or arguments and executes unintended code during CI or release packaging.",
+        "suggestedFix": "Use absolute tool paths or allowlisted commands, validate arguments, and avoid passing untrusted environment values to the process.",
+        "startLine": 4,
+        "suggestedTests": [
+          "Test the build script with a clean PATH and unexpected environment values to ensure command resolution is controlled."
+        ]
+      },
+      {
+        "id": "RSA-BUILD-SCRIPT-B9C844AC",
+        "ruleId": "RSA-BUILD-SCRIPT",
+        "title": "Build script runs code during cargo build",
+        "severity": "medium",
+        "confidence": "high",
+        "category": "supply_chain",
+        "file": "build.rs",
+        "evidence": [
+          "Line 1: use std::process::Command;"
+        ],
+        "whyItMatters": "build.rs executes on the build host before compilation and can access the filesystem, environment, network, and native toolchain.",
+        "riskScenario": "A compromised build script reads secrets from CI or invokes a malicious local tool during release builds.",
+        "suggestedFix": "Keep build scripts minimal, review filesystem/environment/process access, and run builds with least-privilege CI permissions.",
+        "startLine": 1,
+        "suggestedTests": [
+          "Run release builds in a clean CI environment with restricted secrets and assert generated artifacts are deterministic."
+        ]
+      },
+      {
+        "id": "RSA-DEP-LOCK-GIT-F76DA24B",
+        "ruleId": "RSA-DEP-LOCK-GIT",
+        "title": "Cargo.lock resolves a git-sourced package",
+        "severity": "medium",
+        "confidence": "high",
+        "category": "supply_chain",
+        "file": "Cargo.lock",
+        "evidence": [
+          "Line 7: source = \"git+https://github.com/example/gitdep?branch=main#1111111111111111111111111111111111111111\""
+        ],
+        "whyItMatters": "A git source in Cargo.lock confirms the final dependency graph includes code outside the registry checksum path.",
+        "riskScenario": "The release includes a transitive git dependency whose repository trust and revision were not part of the dependency review.",
+        "suggestedFix": "Review each git source in the lockfile, pin immutable revisions, and prefer crates.io releases when available.",
+        "startLine": 7,
+        "suggestedTests": [
+          "Fail CI if new git sources appear in Cargo.lock without explicit security review."
+        ]
+      },
+      {
+        "id": "RSA-DEP-PROC-MACRO-B4614243",
+        "ruleId": "RSA-DEP-PROC-MACRO",
+        "title": "Proc-macro crate executes code during compilation",
+        "severity": "medium",
+        "confidence": "high",
+        "category": "supply_chain",
+        "file": "Cargo.toml",
+        "evidence": [
+          "Line 8: proc-macro = true"
+        ],
+        "whyItMatters": "Proc macros run as compiler plugins during builds and can read files, environment variables, or generate security-sensitive code.",
+        "riskScenario": "A malicious or compromised proc macro exfiltrates build secrets or injects unexpected code during compilation.",
+        "suggestedFix": "Review proc-macro crates as build-time code, pin versions or revisions, and avoid exposing sensitive environment variables during builds.",
+        "startLine": 8,
+        "suggestedTests": [
+          "Build in a restricted CI environment and verify generated code or macro expansion for security-sensitive paths."
+        ]
+      },
+      {
+        "id": "RSA-DEP-GIT-73A55333",
+        "ruleId": "RSA-DEP-GIT",
+        "title": "Git dependency requires supply-chain review",
+        "severity": "medium",
+        "confidence": "high",
+        "category": "supply_chain",
+        "file": "Cargo.toml",
+        "evidence": [
+          "Line 11: gitdep = { git = \"https://github.com/example/gitdep\", branch = \"main\" }"
+        ],
+        "whyItMatters": "Git dependencies bypass the normal registry review and versioning path, so trust depends on the referenced repository and revision.",
+        "riskScenario": "A branch or mutable reference changes after review and introduces malicious build-time or runtime code.",
+        "suggestedFix": "Pin git dependencies to immutable revisions, prefer registry releases when practical, and review repository ownership before release.",
+        "startLine": 11,
+        "suggestedTests": [
+          "Verify CI resolves the expected revision and fails on unexpected dependency source changes."
+        ]
+      },
+      {
+        "id": "RSA-DEP-BUILD-DEPENDENCIES-E548641F",
+        "ruleId": "RSA-DEP-BUILD-DEPENDENCIES",
+        "title": "Build dependencies expand the build-time trust boundary",
+        "severity": "medium",
+        "confidence": "high",
+        "category": "supply_chain",
+        "file": "Cargo.toml",
+        "evidence": [
+          "Line 14: [build-dependencies]"
+        ],
+        "whyItMatters": "Build dependencies are compiled for and used by build scripts or code generators that execute on the build host.",
+        "riskScenario": "A compromised build dependency executes during CI and reads environment secrets or tampers with generated artifacts.",
+        "suggestedFix": "Review build dependencies as build-time code, pin versions, and run release builds with restricted environment access.",
+        "startLine": 14,
+        "suggestedTests": [
+          "Fail CI when new build dependencies appear without explicit review."
+        ]
+      },
+      {
+        "id": "RSA-DEP-PATH-B71CC4A1",
+        "ruleId": "RSA-DEP-PATH",
+        "title": "Path dependency needs local trust boundary review",
+        "severity": "low",
+        "confidence": "high",
+        "category": "dependency",
+        "file": "Cargo.toml",
+        "evidence": [
+          "Line 12: local_dep = { path = \"local_dep\" }"
+        ],
+        "whyItMatters": "Path dependencies are resolved from the local filesystem and can change without a registry version or checksum boundary.",
+        "riskScenario": "A local crate is replaced or modified in CI and the audited package builds against code that was not reviewed.",
+        "suggestedFix": "Keep path dependencies inside the reviewed workspace, avoid absolute paths, and ensure CI checks the complete dependency tree.",
+        "startLine": 12,
+        "suggestedTests": [
+          "Run dependency resolution in CI from a clean checkout and fail if path dependencies point outside the workspace."
+        ]
+      }
+    ]
+  }
+}

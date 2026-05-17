@@ -1,0 +1,45 @@
+import type { AuditReportInput } from "../reports/schemas.js";
+import { DependencyScanner } from "./dependencyScanner.js";
+import { ProjectScanner, type RustProject } from "./projectScanner.js";
+import { dedupeFindings, sortFindings } from "./resultUtils.js";
+import type { ScannerContext, ScannerResult } from "./types.js";
+import { UnsafeScanner } from "./unsafeScanner.js";
+
+export interface RustProjectScanResult extends ScannerResult {
+  project: RustProject;
+}
+
+export async function scanRustProject(options: ScannerContext): Promise<RustProjectScanResult> {
+  const projectScanner = new ProjectScanner();
+  const projectResult = await projectScanner.scan(options);
+  const scanOptions = { ...options, project: projectResult.project };
+  const [unsafeResult, dependencyResult] = await Promise.all([
+    new UnsafeScanner().scan(scanOptions),
+    new DependencyScanner().scan(scanOptions)
+  ]);
+  const suppressedFindings = [
+    ...(unsafeResult.suppressedFindings ?? []),
+    ...(dependencyResult.suppressedFindings ?? [])
+  ];
+
+  return {
+    project: projectResult.project,
+    findings: sortFindings(dedupeFindings([...unsafeResult.findings, ...dependencyResult.findings])),
+    warnings: [...projectResult.warnings, ...unsafeResult.warnings, ...dependencyResult.warnings],
+    suppressedCount: suppressedFindings.length,
+    suppressedFindings
+  };
+}
+
+export function toRustAuditReportInput(
+  result: RustProjectScanResult,
+  overrides: Omit<AuditReportInput, "findings"> = {}
+): AuditReportInput {
+  return {
+    ...overrides,
+    title: overrides.title ?? "Rust Security Audit Report",
+    scope: overrides.scope ?? result.project.workspacePath,
+    findings: result.findings,
+    summaryNotes: [...(overrides.summaryNotes ?? []), ...result.warnings]
+  };
+}

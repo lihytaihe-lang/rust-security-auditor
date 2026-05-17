@@ -1,0 +1,43 @@
+{
+  "name": "rust-security-auditor",
+  "version": "0.1.0",
+  "description": "A low-noise Rust security audit kernel for Codex and future MCP integrations.",
+  "private": true,
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "exports": {
+    ".": "./dist/src/index.js",
+    "./mcp": "./dist/src/mcp/index.js",
+    "./reports": "./dist/src/reports/index.js",
+    "./scanners": "./dist/src/scanners/index.js",
+    "./utils/shell": "./dist/src/utils/shell.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "npm run typecheck",
+    "mcp": "npm run build --silent && node dist/src/mcp/server.js",
+    "mcp:call": "npm run build --silent && node dist/src/mcp/debug.js",
+    "test": "npm run build && node --test dist/test/**/*.test.js",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "rust",
+    "security",
+    "audit",
+    "codex",
+    "mcp"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^25.8.0",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  }
+}

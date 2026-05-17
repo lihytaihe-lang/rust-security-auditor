@@ -1,0 +1,164 @@
+{
+  "tools": [
+    {
+      "name": "rust_audit_project",
+      "title": "Audit Rust project before release",
+      "description": "Use before a release or when the user asks for a full-project Rust security health check. Scans an entire local Cargo project or workspace and returns security findings across unsafe/FFI, dependencies, build scripts, filesystem, input-boundary, secrets, panic/DoS, and manual-review categories.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectPath": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Absolute or relative local directory for a Rust Cargo project or workspace; it must contain at least one Cargo.toml."
+          },
+          "outputFormat": {
+            "description": "Omit or set to json for structured JSON; set to markdown to also include reportMarkdown text for display.",
+            "type": "string",
+            "enum": [
+              "json",
+              "markdown"
+            ]
+          },
+          "includeSuppressed": {
+            "description": "When true, include findings that were hidden by inline rust-security-auditor suppression comments.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "projectPath"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "rust_audit_unsafe",
+      "title": "Audit Rust unsafe and FFI",
+      "description": "Use for specialized unsafe / FFI review, especially when code touches unsafe blocks, unsafe fn, raw pointers, MaybeUninit, transmute, from_raw_parts, set_len, Box::from_raw, extern \"C\", or unsafe Send/Sync impls. Returns only unsafe, raw-memory, concurrency unsafe impl, and FFI findings.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectPath": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Absolute or relative local directory for a Rust Cargo project or workspace; it must contain at least one Cargo.toml."
+          },
+          "includeDocumentedUnsafe": {
+            "description": "When false, omit unsafe block findings that already have nearby SAFETY or Safety comments.",
+            "type": "boolean"
+          },
+          "outputFormat": {
+            "description": "Omit or set to json for structured JSON; set to markdown to also include reportMarkdown text for display.",
+            "type": "string",
+            "enum": [
+              "json",
+              "markdown"
+            ]
+          }
+        },
+        "required": [
+          "projectPath"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "rust_audit_dependencies",
+      "title": "Audit Rust Cargo dependencies",
+      "description": "Use for Cargo dependency and supply-chain review, especially when Cargo.toml, Cargo.lock, build.rs, build-dependencies, proc macros, git dependencies, or path dependencies change. Returns only Cargo, lockfile, build script, and build-time supply-chain findings.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectPath": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Absolute or relative local directory for a Rust Cargo project or workspace; it must contain at least one Cargo.toml."
+          },
+          "outputFormat": {
+            "description": "Omit or set to json for structured JSON; set to markdown to also include reportMarkdown text for display.",
+            "type": "string",
+            "enum": [
+              "json",
+              "markdown"
+            ]
+          }
+        },
+        "required": [
+          "projectPath"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "rust_review_current_diff",
+      "title": "Review current Rust diff before commit",
+      "description": "Use before commit or before opening a PR to review the current Rust changes. Reads git diff affected files, scans the local Cargo project or workspace, and returns findings whose files are touched by the diff. This is file-level diff review, not semantic changed-line analysis.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectPath": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Absolute or relative local directory for a Rust Cargo project or workspace inside a Git work tree."
+          },
+          "baseRef": {
+            "description": "Optional Git base ref for explicit diff review, for example main or origin/main.",
+            "type": "string"
+          },
+          "headRef": {
+            "description": "Optional Git head ref for explicit diff review, for example HEAD or a feature branch.",
+            "type": "string"
+          },
+          "outputFormat": {
+            "description": "Omit or set to json for structured JSON; set to markdown to also include reportMarkdown text for display.",
+            "type": "string",
+            "enum": [
+              "json",
+              "markdown"
+            ]
+          }
+        },
+        "required": [
+          "projectPath"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    }
+  ]
+}

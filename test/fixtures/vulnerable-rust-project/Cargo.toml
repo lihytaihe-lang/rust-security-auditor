@@ -1,0 +1,17 @@
+[workspace]
+members = [
+  "crates/local_dep"
+]
+
+[package]
+name = "vulnerable-rust-project"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[dependencies]
+gitdep = { git = "https://github.com/example/unsafe-crate", rev = "abc123" }
+local_dep = { path = "crates/local_dep" }
+
+[lib]
+proc-macro = true
