@@ -28,7 +28,7 @@
         "review current diff",
         "check this Rust project before commit"
       ],
-      "recommendedUsage": "Use before commit or PR to review security findings introduced by or near Git diff changed lines.",
+      "recommendedUsage": "Use before commit, before PR, after Codex generated code, or after touching unsafe/dependencies/build.rs. Returns reviewDecision, suppressionSummary, and suggestedFixPrompt values without modifying code or adding suppressions.",
       "defaultArguments": {
         "projectPath": "/absolute/path/to/rust/project",
         "includePreExisting": false,

@@ -3,12 +3,20 @@ import { isAbsolute, posix, resolve } from "node:path";
 import { parseUnifiedDiff, type GitDiffFile, type ParsedGitDiff } from "../git/index.js";
 import { renderMarkdownReport, toJsonReport, type AuditReportInput, type Category, categories, type Finding, type Severity, severities } from "../reports/index.js";
 import { DependencyScanner, ProjectScanner, UnsafeScanner, discoverRustProject, scanRustProject, type RustProject, type RustProjectScanResult } from "../scanners/index.js";
-import { dedupeFindings, sortFindings } from "../scanners/resultUtils.js";
+import { countActiveSuppressions, countExpiredSuppressions, countInvalidSuppressions, dedupeFindings, sortFindings } from "../scanners/resultUtils.js";
 import type { SuppressedFinding } from "../scanners/types.js";
 import { runShellCommand } from "../utils/shell.js";
 import {
+  conclusionFromReviewDecision,
+  inferReviewDecision,
+  shouldDisplayDiffFinding,
+  summarizeDiffReviewMetrics,
+  withDiffReviewActionability
+} from "./reviewDecision.js";
+import {
   type DiffAwareFinding,
   type DiffReviewDetails,
+  type DiffReviewSummaryMetrics,
   type DiffReviewMode,
   type FindingDiffContext,
   type McpAuditError,
@@ -21,6 +29,7 @@ import {
   type RustAuditToolInput,
   type RustAuditUnsafeInput,
   type RustReviewCurrentDiffInput,
+  type SuppressionSummary,
   mcpToolNames
 } from "./types.js";
 
@@ -61,6 +70,7 @@ export async function rustAuditProject(input: RustAuditProjectInput): Promise<Mc
       projectPath,
       findings: scan.findings,
       suppressedCount: scan.suppressedCount ?? 0,
+      suppressedFindings: scan.suppressedFindings ?? [],
       outputFormat: input.outputFormat,
       title: "Rust Project Security Audit",
       warnings: scan.warnings
@@ -86,6 +96,7 @@ export async function rustAuditUnsafe(input: RustAuditUnsafeInput): Promise<McpA
       projectPath,
       findings,
       suppressedCount: unsafeResult.suppressedCount ?? 0,
+      suppressedFindings: unsafeResult.suppressedFindings ?? [],
       outputFormat: input.outputFormat,
       title: "Rust Unsafe And FFI Audit",
       warnings: [...projectResult.warnings, ...unsafeResult.warnings]
@@ -108,6 +119,7 @@ export async function rustAuditDependencies(input: RustAuditDependenciesInput): 
       projectPath,
       findings,
       suppressedCount: dependencyResult.suppressedCount ?? 0,
+      suppressedFindings: dependencyResult.suppressedFindings ?? [],
       outputFormat: input.outputFormat,
       title: "Rust Dependency And Supply-Chain Audit",
       warnings: [...projectResult.warnings, ...dependencyResult.warnings]
@@ -125,14 +137,25 @@ export async function rustReviewCurrentDiff(input: RustReviewCurrentDiffInput): 
       affectedFiles.size === 0
         ? emptyRustProjectScan(projectPath)
         : await scanRustProjectFiles(projectPath, affectedFiles);
-    const allEnrichedFindings = enrichFindingsWithDiff(scan.findings, gitDiff.diff.files, changedLineWindow);
+    const suppressedFindings = scan.suppressedFindings ?? [];
+    const suppressionSummary = summarizeSuppressions(suppressedFindings);
+    const allEnrichedFindings = attachSuppressionMetadata(
+      enrichFindingsWithDiff(scan.findings, gitDiff.diff.files, changedLineWindow),
+      suppressedFindings
+    );
     const includePreExisting = input.includePreExisting === true;
-    const enrichedFindings = allEnrichedFindings.filter(
-      (item) => item.diffContext.relation !== "pre_existing_in_changed_file" || includePreExisting
+    const enrichedFindings = withDiffReviewActionability(
+      allEnrichedFindings.filter((item) => shouldDisplayDiffFinding(item, includePreExisting))
     );
     const findings = enrichedFindings.map((item) => item.finding);
     const relationCounts = countRelations(allEnrichedFindings);
-    const conclusion = inferDiffReviewConclusion(enrichedFindings);
+    const reviewDecision = inferReviewDecision(enrichedFindings);
+    const summaryMetrics = summarizeDiffReviewMetrics({
+      allFindings: allEnrichedFindings,
+      visibleFindings: enrichedFindings,
+      reviewDecision
+    });
+    const conclusion = conclusionFromReviewDecision(reviewDecision);
     const diffReview: DiffReviewDetails = {
       mode: gitDiff.mode,
       changedLineWindow,
@@ -141,7 +164,7 @@ export async function rustReviewCurrentDiff(input: RustReviewCurrentDiffInput): 
         ? ["introduced_by_diff", "near_changed_lines", "pre_existing_in_changed_file"]
         : ["introduced_by_diff", "near_changed_lines"],
       relationCounts,
-      hiddenPreExistingCount: includePreExisting ? 0 : relationCounts.pre_existing_in_changed_file,
+      hiddenPreExistingCount: countHiddenPreExistingFindings(allEnrichedFindings, enrichedFindings),
       conclusion
     };
     const warnings = [
@@ -159,14 +182,17 @@ export async function rustReviewCurrentDiff(input: RustReviewCurrentDiffInput): 
       projectPath,
       findings,
       enrichedFindings,
-      suppressedFindings: scan.suppressedFindings ?? [],
-      suppressedCount: scan.suppressedCount ?? 0,
+      suppressedFindings,
+      suppressedCount: suppressionSummary.suppressedCount,
+      suppressionSummary,
       outputFormat: input.outputFormat,
       title: "Rust Current Diff Security Review",
       warnings,
       diffAffectedFiles,
       diff: gitDiff.diff,
-      diffReview
+      diffReview,
+      reviewDecision,
+      summaryMetrics
     });
   });
 }
@@ -239,6 +265,7 @@ function buildToolOutput(input: {
   projectPath: string;
   findings: readonly Finding[];
   suppressedCount: number;
+  suppressedFindings?: readonly SuppressedFinding[] | undefined;
   outputFormat?: OutputFormat | undefined;
   title: string;
   warnings: readonly string[];
@@ -271,6 +298,10 @@ function buildToolOutput(input: {
     output.diffAffectedFiles = [...input.diffAffectedFiles];
   }
 
+  if (input.suppressedFindings !== undefined && input.suppressedFindings.length > 0) {
+    output.suppressedFindings = [...input.suppressedFindings];
+  }
+
   return output;
 }
 
@@ -281,12 +312,15 @@ function buildDiffReviewToolOutput(input: {
   enrichedFindings: readonly DiffAwareFinding[];
   suppressedFindings: readonly SuppressedFinding[];
   suppressedCount: number;
+  suppressionSummary: SuppressionSummary;
   outputFormat?: OutputFormat | undefined;
   title: string;
   warnings: readonly string[];
   diffAffectedFiles: readonly string[];
   diff: ParsedGitDiff;
   diffReview: DiffReviewDetails;
+  reviewDecision: NonNullable<McpAuditToolOutput["reviewDecision"]>;
+  summaryMetrics: DiffReviewSummaryMetrics;
 }): McpAuditToolOutput {
   const reportInput: AuditReportInput = {
     title: input.title,
@@ -299,16 +333,23 @@ function buildDiffReviewToolOutput(input: {
   const output: McpAuditToolOutput = {
     tool: input.tool,
     projectPath: input.projectPath,
-    summary: summarizeForMcp(findings, input.suppressedCount),
+    summary: {
+      ...summarizeForMcp(findings, input.suppressedCount),
+      ...input.summaryMetrics
+    },
+    suppressionSummary: input.suppressionSummary,
     findings,
     diffAffectedFiles: [...input.diffAffectedFiles],
     diff: {
       files: input.diff.files
     },
     diffReview: input.diffReview,
+    reviewDecision: input.reviewDecision,
     enrichedFindings: input.enrichedFindings.map((item) => ({
       finding: item.finding,
-      diffContext: item.diffContext
+      diffContext: item.diffContext,
+      actionability: item.actionability,
+      suppression: item.suppression
     }))
   };
 
@@ -318,9 +359,11 @@ function buildDiffReviewToolOutput(input: {
       projectPath: input.projectPath,
       findings: input.enrichedFindings,
       suppressedFindings: input.suppressedFindings,
+      suppressionSummary: input.suppressionSummary,
       warnings: input.warnings,
       diffAffectedFiles: input.diffAffectedFiles,
-      diffReview: input.diffReview
+      diffReview: input.diffReview,
+      reviewDecision: input.reviewDecision
     });
   }
 
@@ -389,98 +432,201 @@ function inferRiskLevel(findings: readonly Finding[]): McpAuditSummary["riskLeve
   return "pass";
 }
 
+function summarizeSuppressions(suppressions: readonly SuppressedFinding[]): SuppressionSummary {
+  return {
+    suppressedCount: countActiveSuppressions(suppressions),
+    expiredSuppressionCount: countExpiredSuppressions(suppressions),
+    invalidSuppressionCount: countInvalidSuppressions(suppressions)
+  };
+}
+
+function attachSuppressionMetadata(
+  findings: readonly DiffAwareFinding[],
+  suppressions: readonly SuppressedFinding[]
+): DiffAwareFinding[] {
+  const inactiveSuppressionsByFinding = new Map(
+    suppressions
+      .filter((suppression) => !suppression.isValid || suppression.isExpired)
+      .map((suppression) => [suppressionKey(suppression.ruleId, suppression.file, suppression.line), suppression])
+  );
+
+  return findings.map((item) => {
+    const line = item.finding.startLine;
+    if (line === undefined) return item;
+
+    const suppression = inactiveSuppressionsByFinding.get(suppressionKey(item.finding.ruleId, item.finding.file, line));
+    if (suppression === undefined) return item;
+
+    return {
+      ...item,
+      suppression
+    };
+  });
+}
+
+function suppressionKey(ruleId: string, file: string, line: number): string {
+  return `${ruleId}:${file}:${line}`;
+}
+
 function renderDiffReviewMarkdown(input: {
   title: string;
   projectPath: string;
   findings: readonly DiffAwareFinding[];
   suppressedFindings: readonly SuppressedFinding[];
+  suppressionSummary: SuppressionSummary;
   warnings: readonly string[];
   diffAffectedFiles: readonly string[];
   diffReview: DiffReviewDetails;
+  reviewDecision: NonNullable<McpAuditToolOutput["reviewDecision"]>;
 }): string {
+  const blockingIds = new Set(input.reviewDecision.blockingFindingIds);
+  const manualReviewIds = new Set(input.reviewDecision.needsManualReviewFindingIds);
+  const blockingFindings = input.findings.filter((item) => blockingIds.has(item.finding.id));
+  const manualReviewFindings = input.findings.filter((item) => manualReviewIds.has(item.finding.id));
+  const nonBlockingFindings = input.findings.filter(
+    (item) => !blockingIds.has(item.finding.id) && !manualReviewIds.has(item.finding.id)
+  );
+  const preExistingShown = input.findings.filter((item) => item.diffContext.relation === "pre_existing_in_changed_file").length;
   const lines: string[] = [
-    `# ${input.title}`,
+    "# Rust Security Review: Current Diff",
+    "",
+    "## Decision",
+    "",
+    `${decisionLabel(input.reviewDecision.status)}`,
+    "",
+    `- Safe to commit: ${input.reviewDecision.safeToCommit ? "Yes" : "No"}`,
+    `- Reason: ${input.reviewDecision.reason}`,
+    `- Blocking findings: ${input.reviewDecision.blockingFindingIds.length}`,
+    `- Manual review findings: ${input.reviewDecision.needsManualReviewFindingIds.length}`,
     "",
     "## Summary",
     "",
-    `- Conclusion: ${input.diffReview.conclusion}`,
-    `- Diff mode: ${input.diffReview.mode}`,
-    `- Changed-line window: ${input.diffReview.changedLineWindow}`,
-    `- Scope: ${input.projectPath}`,
-    `- Changed files: ${input.diffAffectedFiles.length}`,
-    `- Introduced by this diff: ${input.diffReview.relationCounts.introduced_by_diff}`,
+    `- Introduced risks: ${input.diffReview.relationCounts.introduced_by_diff}`,
     `- Near changed lines: ${input.diffReview.relationCounts.near_changed_lines}`,
-    `- Pre-existing in changed files: ${input.diffReview.relationCounts.pre_existing_in_changed_file}`
+    `- Pre-existing risks shown: ${preExistingShown}`,
+    `- Suppressed: ${input.suppressionSummary.suppressedCount}`,
+    `- Expired suppressions: ${input.suppressionSummary.expiredSuppressionCount}`,
+    `- Invalid suppressions: ${input.suppressionSummary.invalidSuppressionCount}`,
+    `- Scope: ${input.projectPath}`,
+    `- Diff mode: ${input.diffReview.mode}`,
+    `- Changed files: ${input.diffAffectedFiles.length}`,
+    `- Changed-line window: ${input.diffReview.changedLineWindow}`
   ];
 
   if (input.diffReview.hiddenPreExistingCount > 0) {
     lines.push(`- Hidden pre-existing findings: ${input.diffReview.hiddenPreExistingCount}`);
   }
 
-  if (input.warnings.length > 0) {
-    lines.push("", "## Notes", "");
-    for (const warning of input.warnings) {
-      lines.push(`- ${warning}`);
-    }
-  }
-
-  lines.push("", "## Changed Files", "");
-  if (input.diffAffectedFiles.length === 0) {
-    lines.push("No changed files in the selected git diff.");
-  } else {
-    for (const file of input.diffAffectedFiles) {
-      lines.push(`- \`${file}\``);
-    }
-  }
-
-  appendDiffFindingGroup(lines, "Introduced by this diff", input.findings, "introduced_by_diff");
-  appendDiffFindingGroup(lines, "Near changed lines", input.findings, "near_changed_lines");
-
-  if (input.diffReview.includePreExisting) {
-    appendDiffFindingGroup(lines, "Pre-existing in changed files", input.findings, "pre_existing_in_changed_file");
-  } else {
-    lines.push("", "## Pre-existing in changed files", "");
-    if (input.diffReview.hiddenPreExistingCount === 0) {
-      lines.push("No hidden pre-existing findings in changed files.");
-    } else {
-      lines.push(
-        `${input.diffReview.hiddenPreExistingCount} finding(s) were hidden because they are in changed files but not close to added lines. Re-run with \`includePreExisting: true\` to include them.`
-      );
-    }
-  }
-
-  lines.push("", "## Suppressed findings", "");
-  if (input.suppressedFindings.length === 0) {
-    lines.push("No inline-suppressed findings in changed files.");
-  } else {
-    for (const finding of input.suppressedFindings) {
-      lines.push(
-        `- ${finding.ruleId} at \`${finding.file}:${finding.line}\` suppressed by directive on line ${finding.directiveLine}: ${finding.reason}`
-      );
-    }
-  }
-
-  lines.push("", "## Conclusion", "", conclusionText(input.diffReview.conclusion));
+  appendChangedFiles(lines, input.diffAffectedFiles);
+  appendReviewFindingSection(lines, "Blocking Issues", blockingFindings);
+  appendReviewFindingSection(lines, "Needs Manual Review", manualReviewFindings);
+  appendReviewFindingSection(lines, "Non-blocking Notes", nonBlockingFindings);
+  appendSuppressedRisks(lines, input.suppressedFindings, input.suppressionSummary);
+  appendSuggestedFixPrompts(lines, input.findings);
+  appendLimitations(lines, input.warnings);
 
   return `${lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd()}\n`;
 }
 
-function appendDiffFindingGroup(
-  lines: string[],
-  title: string,
-  findings: readonly DiffAwareFinding[],
-  relation: FindingDiffContext["relation"]
-): void {
-  const group = findings.filter((item) => item.diffContext.relation === relation);
-  lines.push("", `## ${title}`, "");
-
-  if (group.length === 0) {
-    lines.push("No findings in this group.");
+function appendChangedFiles(lines: string[], diffAffectedFiles: readonly string[]): void {
+  lines.push("", "## Changed Files", "");
+  if (diffAffectedFiles.length === 0) {
+    lines.push("No changed files in the selected git diff.");
     return;
   }
 
-  for (const item of group) {
+  for (const file of diffAffectedFiles) {
+    lines.push(`- \`${file}\``);
+  }
+}
+
+function appendReviewFindingSection(lines: string[], title: string, findings: readonly DiffAwareFinding[]): void {
+  lines.push("", `## ${title}`, "");
+
+  if (findings.length === 0) {
+    lines.push("None.");
+    return;
+  }
+
+  for (const item of findings) {
     lines.push(...formatDiffFinding(item), "");
+  }
+}
+
+function appendSuggestedFixPrompts(lines: string[], findings: readonly DiffAwareFinding[]): void {
+  lines.push("", "## Suggested Codex Fix Prompts", "");
+
+  if (findings.length === 0) {
+    lines.push("No Codex fix prompts were generated for this diff.");
+    return;
+  }
+
+  for (const item of findings) {
+    lines.push(`- ${item.actionability?.suggestedFixPrompt ?? "No suggested fix prompt available."}`);
+  }
+}
+
+function appendSuppressedRisks(
+  lines: string[],
+  suppressedFindings: readonly SuppressedFinding[],
+  suppressionSummary: SuppressionSummary
+): void {
+  lines.push("", "## Accepted / Suppressed Risks", "");
+  lines.push(`- Suppressed count: ${suppressionSummary.suppressedCount}`);
+  lines.push(`- Expired suppression count: ${suppressionSummary.expiredSuppressionCount}`);
+  lines.push(`- Invalid suppression count: ${suppressionSummary.invalidSuppressionCount}`);
+
+  if (suppressedFindings.length === 0) {
+    lines.push("", "None.");
+    return;
+  }
+
+  lines.push("");
+
+  for (const suppression of suppressedFindings) {
+    const status = suppression.isValid
+      ? suppression.isExpired
+        ? "expired suppression"
+        : "accepted risk"
+      : "invalid suppression";
+    const metadata = formatSuppressionMetadata(suppression);
+    const reason = suppression.reason.length > 0 ? suppression.reason : "missing required reason";
+    lines.push(
+      `- ${status}: ${suppression.ruleId} at \`${suppression.file}:${suppression.line}\`; reason: ${reason}; ${metadata}`
+    );
+
+    if (suppression.isExpired) {
+      lines.push("  Expired suppression: finding is shown again and needs review.");
+    }
+
+    if (!suppression.isValid) {
+      lines.push(`  Invalid suppression: ${suppression.invalidSuppression ?? "suppression directive is invalid"}`);
+    }
+  }
+}
+
+function formatSuppressionMetadata(suppression: SuppressedFinding): string {
+  const metadata = [
+    suppression.owner === undefined ? undefined : `owner: ${suppression.owner}`,
+    suppression.ticket === undefined ? undefined : `ticket: ${suppression.ticket}`,
+    suppression.until === undefined ? undefined : `until: ${suppression.until}`
+  ].filter((item): item is string => item !== undefined);
+
+  return metadata.length === 0 ? "metadata: none" : metadata.join("; ");
+}
+
+function appendLimitations(lines: string[], warnings: readonly string[]): void {
+  lines.push(
+    "",
+    "## Limitations",
+    "",
+    "- Heuristic static scan.",
+    "- Not full AST/data-flow/taint analysis.",
+    "- Diff relation based on changed lines."
+  );
+
+  for (const warning of warnings) {
+    lines.push(`- ${warning}`);
   }
 }
 
@@ -489,16 +635,34 @@ function formatDiffFinding(item: DiffAwareFinding): string[] {
   const nearestChangedLine =
     item.diffContext.nearestChangedLine === undefined ? "none" : String(item.diffContext.nearestChangedLine);
   const distance = item.diffContext.distance === undefined ? "n/a" : String(item.diffContext.distance);
-
-  return [
+  const actionability = item.actionability;
+  const lines = [
     `### ${finding.ruleId}: ${finding.title}`,
     "",
     `- Severity: ${titleCase(finding.severity)}`,
     `- Confidence: ${titleCase(finding.confidence)}`,
     `- Rule: ${finding.ruleId}`,
     `- Location: \`${formatFindingLocation(finding)}\``,
+    `- Diff relation: ${item.diffContext.relation}`,
     `- Nearest changed line: ${nearestChangedLine}`,
     `- Distance: ${distance}`,
+    `- Recommended action: ${actionability?.recommendedAction ?? "manual_review"}`,
+    `- Can Codex fix: ${actionability?.canCodexFix === true ? "Yes" : "No"}`
+  ];
+
+  if (actionability?.suppressionSuggestion !== undefined) {
+    lines.push(`- Suppression suggestion: \`${actionability.suppressionSuggestion}\``);
+  }
+
+  if (item.suppression?.isExpired === true) {
+    lines.push("- Suppression status: expired; finding is shown again.");
+  }
+
+  if (item.suppression?.isValid === false) {
+    lines.push(`- Suppression status: invalid; ${item.suppression.invalidSuppression ?? "directive ignored"}`);
+  }
+
+  lines.push(
     "",
     "#### Evidence",
     "",
@@ -507,7 +671,20 @@ function formatDiffFinding(item: DiffAwareFinding): string[] {
     "#### Recommendation",
     "",
     finding.suggestedFix
-  ];
+  );
+
+  return lines;
+}
+
+function decisionLabel(status: NonNullable<McpAuditToolOutput["reviewDecision"]>["status"]): string {
+  switch (status) {
+    case "block":
+      return "BLOCK";
+    case "needs_attention":
+      return "NEEDS ATTENTION";
+    case "pass":
+      return "PASS";
+  }
 }
 
 function formatFindingLocation(finding: Finding): string {
@@ -520,17 +697,6 @@ function formatFindingLocation(finding: Finding): string {
   }
 
   return `${finding.file}:${finding.startLine}`;
-}
-
-function conclusionText(conclusion: DiffReviewDetails["conclusion"]): string {
-  switch (conclusion) {
-    case "Block before commit":
-      return "Block before commit: this diff introduces a high or critical security finding.";
-    case "Needs attention":
-      return "Needs attention: review the introduced or nearby findings before committing.";
-    case "Safe to proceed":
-      return "Safe to proceed: no blocking changed-line-aware findings were reported by the configured checks.";
-  }
 }
 
 function titleCase(value: string): string {
@@ -570,7 +736,9 @@ async function scanRustProjectFiles(projectPath: string, files: ReadonlySet<stri
     project,
     findings: sortFindings(dedupeFindings([...unsafeResult.findings, ...dependencyResult.findings])),
     warnings: [...projectResult.warnings, ...unsafeResult.warnings, ...dependencyResult.warnings],
-    suppressedCount: suppressedFindings.length,
+    suppressedCount: countActiveSuppressions(suppressedFindings),
+    expiredSuppressionCount: countExpiredSuppressions(suppressedFindings),
+    invalidSuppressionCount: countInvalidSuppressions(suppressedFindings),
     suppressedFindings
   };
 }
@@ -702,22 +870,15 @@ function countRelations(findings: readonly DiffAwareFinding[]): DiffReviewDetail
   };
 }
 
-function inferDiffReviewConclusion(findings: readonly DiffAwareFinding[]): DiffReviewDetails["conclusion"] {
-  const introduced = findings.filter((item) => item.diffContext.relation === "introduced_by_diff");
+function countHiddenPreExistingFindings(
+  allFindings: readonly DiffAwareFinding[],
+  visibleFindings: readonly DiffAwareFinding[]
+): number {
+  const visibleIds = new Set(visibleFindings.map((item) => item.finding.id));
 
-  if (introduced.some((item) => item.finding.severity === "critical" || item.finding.severity === "high")) {
-    return "Block before commit";
-  }
-
-  if (introduced.some((item) => item.finding.severity === "medium")) {
-    return "Needs attention";
-  }
-
-  if (findings.some((item) => item.finding.severity === "critical" || item.finding.severity === "high" || item.finding.severity === "medium")) {
-    return "Needs attention";
-  }
-
-  return "Safe to proceed";
+  return allFindings.filter(
+    (item) => item.diffContext.relation === "pre_existing_in_changed_file" && !visibleIds.has(item.finding.id)
+  ).length;
 }
 
 async function readGitDiff(

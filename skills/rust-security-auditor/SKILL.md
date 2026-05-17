@@ -36,6 +36,10 @@ Defaults for `rust_review_current_diff`:
 - With both `baseRef` and `headRef`, review `git diff baseRef..headRef`.
 - By default, present only `introduced_by_diff` and `near_changed_lines`.
 - Use `includePreExisting: true` only when the user asks to see historical risks in changed files.
+- Use `reviewDecision.status` as the primary commit/PR recommendation: `block`, `needs_attention`, or `pass`.
+- Use `enrichedFindings[].actionability.recommendedAction` and `suggestedFixPrompt` when the user asks what Codex should do next.
+- Use `suppressionSummary` and `suppressedFindings` to explain active, expired, and invalid accepted-risk suppressions.
+- Do not modify code automatically from `suggestedFixPrompt`; offer or run fixes only when the user explicitly asks.
 
 Explain that changed-line awareness improves PR focus, but the result is still heuristic scanner output, not full data-flow, control-flow, or taint analysis.
 
@@ -50,6 +54,7 @@ Call `rust_audit_project` when the user asks for a full project audit, project h
 When presenting tool results, include:
 
 - Overall risk conclusion.
+- `reviewDecision.status`, reason, and whether `safeToCommit` is true.
 - Blocking issues.
 - Recommended fixes.
 - Manual review needed.
@@ -67,15 +72,24 @@ Confidence guidance:
 - `medium`: recommend manual confirmation of the code context and invariant.
 - `low`: avoid exaggeration; phrase as a review target or possible risk, not a confirmed vulnerability.
 
+Actionability guidance:
+
+- `fix_before_commit`: present as a blocker and include the returned `suggestedFixPrompt`.
+- `manual_review`: ask the user or code owner to confirm the invariant before calling it a real defect.
+- `monitor`: mention as a non-blocking note unless project policy says otherwise.
+- `suppress_if_accepted`: explain that suppression is appropriate only after the risk is intentionally accepted, with a narrow inline suppression, required reason, and preferably owner/ticket/until metadata. Do not add the suppression unless the user explicitly asks.
+
 For every finding, ground the explanation in the returned `ruleId`, `file`, line, severity, confidence, evidence, `whyItMatters`, risk scenario, and suggested fix. Do not invent exploitability beyond the evidence.
 
 ## Commit And Release Gate Guidance
 
 Before commit:
 
-- Block by default on `critical` or `high` findings marked `introduced_by_diff`.
+- Block by default on `critical` or `high` findings marked `introduced_by_diff` when confidence is `high` or `medium`.
 - Treat `medium` findings marked `introduced_by_diff` as "needs developer confirmation".
-- Treat `near_changed_lines` findings as review targets because the diff may affect nearby invariants.
+- Treat `near_changed_lines` `high` or `critical` findings as blockers when confidence is `high`; otherwise present nearby high/medium findings as manual-review targets because the diff may affect nearby invariants.
+- Put low-confidence findings in manual review / accepted-risk flow, not in hard blockers.
+- Treat only low/info findings with non-low confidence as pass-level non-blocking notes.
 - Hide or summarize `pre_existing_in_changed_file` findings unless `includePreExisting: true` was requested.
 - Allow `low` and `info` findings to be tracked unless they indicate policy-sensitive code.
 
@@ -87,7 +101,35 @@ Before release:
 
 ## False Positives And Suppression
 
-If a finding is accepted as intentional and reviewed, suggest adding a narrow inline suppression only when the user asks how to handle noise. Suppress the specific `ruleId` near the relevant code and include a human-readable reason. Do not recommend broad suppression when a local fix or clearer invariant documentation is better.
+If a finding is accepted as intentional and reviewed, suggest adding a narrow inline suppression only when the user asks how to handle noise or the tool returns `recommendedAction: "suppress_if_accepted"`. Suppression means "accepted risk with traceability", not "make the tool quiet".
+
+Supported suppression comments:
+
+```rust
+// rustsec-auditor: ignore RULE_ID -- reason
+// rustsec-auditor: ignore RULE_ID until=YYYY-MM-DD -- reason
+// rustsec-auditor: ignore RULE_ID owner=@name -- reason
+// rustsec-auditor: ignore RULE_ID ticket=SEC-123 -- reason
+```
+
+Rules for explaining suppression:
+
+- Reason is required.
+- Use the exact returned `ruleId`; broad `ignore all` or `ignore *` is not supported.
+- Recommend owner, ticket, and until when the risk is accepted for more than a one-off false positive.
+- Expired suppressions are shown again and make current diff review at least `needs_attention`.
+- Invalid suppressions are ignored and should be fixed as accepted-risk metadata, not treated as hidden findings.
+- High-confidence blockers should default to `fix_before_commit`, not suppression.
+
+Useful Codex prompts:
+
+```text
+Please fix RSA-... at file:line by applying the smallest safe code change and adding focused tests if needed.
+```
+
+```text
+If this risk is intentional, add a rustsec-auditor suppression comment with a clear reason, owner, and ticket.
+```
 
 ## Do Not Do
 

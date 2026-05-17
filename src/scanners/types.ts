@@ -10,6 +10,8 @@ export interface ScannerResult {
   findings: Finding[];
   warnings: string[];
   suppressedCount?: number;
+  expiredSuppressionCount?: number;
+  invalidSuppressionCount?: number;
   suppressedFindings?: SuppressedFinding[];
 }
 
@@ -19,6 +21,13 @@ export interface SuppressedFinding {
   line: number;
   directiveLine: number;
   reason: string;
+  owner?: string;
+  ticket?: string;
+  until?: string;
+  isExpired: boolean;
+  isValid: boolean;
+  rawComment: string;
+  invalidSuppression?: string;
 }
 
 export interface SecurityScanner<TOptions extends ScannerContext = ScannerContext> {

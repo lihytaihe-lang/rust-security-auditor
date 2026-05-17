@@ -126,12 +126,29 @@ describe("rust project scan", () => {
     assert.match(markdown, /- Rule: RSA-UNSAFE-FN/);
   });
 
-  it("suppresses ignored rule findings near inline directives", async () => {
+  it("tracks valid, invalid, and expired accepted-risk suppressions", async () => {
     const result = await scanRustProject({ workspacePath: suppressedFixturePath });
+    const suppressedFindings = result.suppressedFindings ?? [];
+    const activeSuppressions = suppressedFindings.filter((suppression) => suppression.isValid && !suppression.isExpired);
+    const invalidSuppressions = suppressedFindings.filter((suppression) => !suppression.isValid);
+    const expiredSuppressions = suppressedFindings.filter((suppression) => suppression.isExpired);
 
-    assert.equal(result.findings.some((finding) => finding.ruleId === "RSA-UNSAFE-BLOCK"), false);
-    assert.equal(result.suppressedCount, 1);
-    assert.equal(result.suppressedFindings?.[0]?.ruleId, "RSA-UNSAFE-BLOCK");
+    assert.equal(result.findings.filter((finding) => finding.ruleId === "RSA-UNSAFE-BLOCK").length, 2);
+    assert.equal(result.suppressedCount, 4);
+    assert.equal(result.expiredSuppressionCount, 1);
+    assert.equal(result.invalidSuppressionCount, 1);
+    assert.equal(suppressedFindings.length, 6);
+    assert.equal(activeSuppressions.length, 4);
+    assert.equal(invalidSuppressions[0]?.invalidSuppression?.includes("reason is required"), true);
+    assert.equal(expiredSuppressions[0]?.until, "2000-01-01");
+    assert.equal(expiredSuppressions[0]?.isExpired, true);
+    assert.ok(activeSuppressions.some((suppression) => suppression.reason.includes("legacy FFI wrapper")));
+    assert.ok(activeSuppressions.some((suppression) => suppression.owner === "@security"));
+    assert.ok(activeSuppressions.some((suppression) => suppression.ticket === "SEC-123"));
+    assert.ok(activeSuppressions.some((suppression) => suppression.until === "2999-12-31"));
+    assert.ok(suppressedFindings.every((suppression) => suppression.rawComment.includes("rustsec-auditor: ignore")));
+    assert.match(result.warnings.join("\n"), /invalid rustsec-auditor suppression/);
+    assert.match(result.warnings.join("\n"), /expired rustsec-auditor suppression/);
   });
 
   it("keeps the safe fixture much quieter than the vulnerable fixture", async () => {

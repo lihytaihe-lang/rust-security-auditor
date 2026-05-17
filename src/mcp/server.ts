@@ -100,7 +100,7 @@ export function createRustSecurityAuditorMcpServer(): McpServer {
     {
       title: "Review current Rust diff before commit",
       description:
-        "Use before commit or before opening a PR to review the current Rust changes. Parses git diff hunks, scans only changed files in the local Cargo project or workspace, and marks findings as introduced by the diff, near changed lines, or pre-existing in changed files.",
+        "Use before commit, before opening a PR, after Codex generated code, or after touching unsafe Rust, dependencies, or build.rs. Parses git diff hunks, scans only changed files in the local Cargo project or workspace, returns reviewDecision, suppressionSummary, and suggestedFixPrompt values, and never automatically modifies code or adds suppressions.",
       annotations: readOnlyAnnotations,
       inputSchema: {
         projectPath: z

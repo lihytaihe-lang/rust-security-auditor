@@ -1,7 +1,7 @@
 import type { AuditReportInput } from "../reports/schemas.js";
 import { DependencyScanner } from "./dependencyScanner.js";
 import { ProjectScanner, type RustProject } from "./projectScanner.js";
-import { dedupeFindings, sortFindings } from "./resultUtils.js";
+import { countActiveSuppressions, countExpiredSuppressions, countInvalidSuppressions, dedupeFindings, sortFindings } from "./resultUtils.js";
 import type { ScannerContext, ScannerResult } from "./types.js";
 import { UnsafeScanner } from "./unsafeScanner.js";
 
@@ -26,7 +26,9 @@ export async function scanRustProject(options: ScannerContext): Promise<RustProj
     project: projectResult.project,
     findings: sortFindings(dedupeFindings([...unsafeResult.findings, ...dependencyResult.findings])),
     warnings: [...projectResult.warnings, ...unsafeResult.warnings, ...dependencyResult.warnings],
-    suppressedCount: suppressedFindings.length,
+    suppressedCount: countActiveSuppressions(suppressedFindings),
+    expiredSuppressionCount: countExpiredSuppressions(suppressedFindings),
+    invalidSuppressionCount: countInvalidSuppressions(suppressedFindings),
     suppressedFindings
   };
 }

@@ -7,6 +7,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import {
   createRustSecurityAuditorMcpServer,
+  type DiffAwareFinding,
   mcpToolNames,
   type McpAuditToolOutput,
   rustAuditDependencies,
@@ -14,6 +15,8 @@ import {
   rustAuditUnsafe,
   rustReviewCurrentDiff
 } from "../src/mcp/index.js";
+import { actionabilityForDiffFinding, inferReviewDecision } from "../src/mcp/reviewDecision.js";
+import type { Finding } from "../src/reports/index.js";
 import { runShellCommandOrThrow } from "../src/utils/shell.js";
 
 const vulnerableFixturePath = resolve("test/fixtures/vulnerable-rust-project");
@@ -147,15 +150,175 @@ describe("MCP audit tools", () => {
       assert.ok((output.diffReview?.hiddenPreExistingCount ?? 0) >= 2);
       assert.ok(output.enrichedFindings?.some((item) => item.diffContext.relation === "introduced_by_diff"));
       assert.ok(output.enrichedFindings?.some((item) => item.diffContext.relation === "near_changed_lines"));
+      assert.ok(output.enrichedFindings?.every((item) => item.actionability?.recommendedAction !== undefined));
       assert.equal(
         output.enrichedFindings?.some((item) => item.diffContext.relation === "pre_existing_in_changed_file"),
         false
       );
       assert.equal(output.findings.some((finding) => finding.evidence.join("\n").includes("legacy_far")), false);
-      assert.match(output.reportMarkdown ?? "", /## Introduced by this diff/);
-      assert.match(output.reportMarkdown ?? "", /## Near changed lines/);
+      assert.equal(output.reviewDecision?.status, "needs_attention");
+      assert.equal(output.reviewDecision?.safeToCommit, false);
+      assert.match(output.reportMarkdown ?? "", /## Decision/);
+      assert.match(output.reportMarkdown ?? "", /## Needs Manual Review/);
+      assert.match(output.reportMarkdown ?? "", /## Accepted \/ Suppressed Risks/);
       assert.match(output.reportMarkdown ?? "", /Hidden pre-existing findings/);
-      assert.match(output.reportMarkdown ?? "", /Conclusion: Needs attention/);
+      assert.match(output.reportMarkdown ?? "", /NEEDS ATTENTION/);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rust_review_current_diff blocks introduced high findings", async () => {
+    const { tempRoot, repoPath } = await createDiffReviewRepo();
+
+    try {
+      await writeFile(
+        join(repoPath, "build.rs"),
+        [
+          "use std::process::Command;",
+          "",
+          "fn main() {",
+          "    let _ = Command::new(\"sh\").arg(\"-c\").arg(\"echo generated\").status();",
+          "}"
+        ].join("\n") + "\n",
+        "utf8"
+      );
+      await runShellCommandOrThrow("git", ["add", "build.rs"], { cwd: repoPath });
+
+      const output = await rustReviewCurrentDiff({
+        projectPath: repoPath,
+        staged: true,
+        outputFormat: "markdown"
+      });
+
+      assert.equal(output.error, undefined);
+      assert.equal(output.reviewDecision?.status, "block");
+      assert.equal(output.reviewDecision?.safeToCommit, false);
+      assert.ok(output.reviewDecision?.blockingFindingIds.some((id) => id.startsWith("RSA-BUILD-COMMAND")));
+      const blocker = output.enrichedFindings?.find((item) => item.actionability?.recommendedAction === "fix_before_commit");
+      assert.ok(blocker);
+      assert.equal(blocker.actionability?.suppressionSuggestion, undefined);
+      assert.match(output.reportMarkdown ?? "", /## Decision/);
+      assert.match(output.reportMarkdown ?? "", /## Blocking Issues/);
+      assert.match(output.reportMarkdown ?? "", /## Suggested Codex Fix Prompts/);
+      assert.match(output.reportMarkdown ?? "", /Please fix RSA-BUILD-COMMAND/);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rust_review_current_diff marks introduced medium findings as needs_attention", async () => {
+    const { tempRoot, repoPath } = await createDiffReviewRepo();
+
+    try {
+      await writeFile(join(repoPath, "src/lib.rs"), changedLineAwareLibSource(), "utf8");
+
+      const output = await rustReviewCurrentDiff({
+        projectPath: repoPath
+      });
+
+      assert.equal(output.error, undefined);
+      assert.equal(output.reviewDecision?.status, "needs_attention");
+      assert.equal(output.reviewDecision?.blockingFindingIds.length, 0);
+      assert.ok((output.reviewDecision?.needsManualReviewFindingIds.length ?? 0) > 0);
+      assert.ok(output.enrichedFindings?.some((item) => item.actionability?.recommendedAction === "manual_review"));
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("low confidence high findings suggest suppression only if accepted without a hard block", () => {
+    const finding = testFinding({
+      id: "RSA-BUILD-COMMAND-LOWCONF",
+      ruleId: "RSA-BUILD-COMMAND",
+      severity: "high",
+      confidence: "low",
+      category: "command_execution"
+    });
+    const diffFinding: DiffAwareFinding = {
+      finding,
+      diffContext: {
+        relation: "introduced_by_diff",
+        nearestChangedLine: 10,
+        distance: 0
+      }
+    };
+
+    const decision = inferReviewDecision([diffFinding]);
+    const actionability = actionabilityForDiffFinding(diffFinding);
+
+    assert.equal(decision.status, "needs_attention");
+    assert.deepEqual(decision.blockingFindingIds, []);
+    assert.deepEqual(decision.needsManualReviewFindingIds, [finding.id]);
+    assert.equal(decision.safeToCommit, false);
+    assert.equal(actionability.recommendedAction, "suppress_if_accepted");
+    assert.match(actionability.suppressionSuggestion ?? "", /rustsec-auditor: ignore RSA-BUILD-COMMAND/);
+  });
+
+  it("rust_review_current_diff reports active, invalid, and expired suppressions", async () => {
+    const { tempRoot, repoPath } = await createDiffReviewRepo();
+
+    try {
+      await writeFile(join(repoPath, "src/lib.rs"), suppressedDiffReviewLibSource(), "utf8");
+
+      const output = await rustReviewCurrentDiff({
+        projectPath: repoPath,
+        outputFormat: "markdown"
+      });
+
+      assert.equal(output.error, undefined);
+      assert.equal(output.suppressionSummary?.suppressedCount, 1);
+      assert.equal(output.suppressionSummary?.expiredSuppressionCount, 1);
+      assert.equal(output.suppressionSummary?.invalidSuppressionCount, 1);
+      assert.equal(output.summary.suppressedCount, 1);
+      assert.equal(output.suppressedFindings?.length, 3);
+      assert.equal(output.findings.filter((finding) => finding.ruleId === "RSA-UNSAFE-BLOCK").length, 2);
+      assert.equal(output.reviewDecision?.status, "needs_attention");
+      assert.equal(output.reviewDecision?.safeToCommit, false);
+      assert.ok(output.enrichedFindings?.some((item) => item.suppression?.isExpired === true));
+      assert.ok(output.enrichedFindings?.some((item) => item.suppression?.isValid === false));
+      assert.match(output.reportMarkdown ?? "", /## Accepted \/ Suppressed Risks/);
+      assert.match(output.reportMarkdown ?? "", /Expired suppression: finding is shown again/);
+      assert.match(output.warnings?.join("\n") ?? "", /invalid rustsec-auditor suppression/);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rust_review_current_diff passes only low non-blocking introduced findings and reports metrics", async () => {
+    const { tempRoot, repoPath } = await createDiffReviewRepo();
+
+    try {
+      await writeFile(
+        join(repoPath, "Cargo.toml"),
+        [
+          "[package]",
+          "name = \"diff_review_fixture\"",
+          "version = \"0.1.0\"",
+          "edition = \"2021\"",
+          "",
+          "[dependencies]",
+          "local_dep = { path = \"crates/local_dep\" }"
+        ].join("\n") + "\n",
+        "utf8"
+      );
+
+      const output = await rustReviewCurrentDiff({
+        projectPath: repoPath
+      });
+
+      assert.equal(output.error, undefined);
+      assert.equal(output.reviewDecision?.status, "pass");
+      assert.equal(output.reviewDecision?.safeToCommit, true);
+      assert.equal(output.findings.length, 1);
+      assert.equal(output.findings[0]?.severity, "low");
+      assert.equal(output.summary.introducedFindingCount, 1);
+      assert.equal(output.summary.nearChangedFindingCount, 0);
+      assert.equal(output.summary.preExistingFindingCount, 0);
+      assert.equal(output.summary.blockingCount, 0);
+      assert.equal(output.summary.manualReviewCount, 0);
+      assert.equal(output.summary.nonBlockingCount, 1);
+      assert.equal(output.enrichedFindings?.[0]?.actionability?.recommendedAction, "monitor");
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
@@ -349,6 +512,51 @@ function changedLineAwareLibSource(): string {
     "}"
   );
   return `${lines.join("\n")}\n`;
+}
+
+function suppressedDiffReviewLibSource(): string {
+  const lines = initialDiffReviewLibSource().trimEnd().split("\n");
+  lines.push(
+    "",
+    "pub fn active_suppressed(ptr: *const u8) -> u8 {",
+    "    // rustsec-auditor: ignore RSA-UNSAFE-BLOCK ticket=SEC-456 -- accepted legacy pointer shim",
+    "    unsafe { *ptr }",
+    "}",
+    "",
+    "pub fn invalid_suppression(ptr: *const u8) -> u8 {",
+    "    // rustsec-auditor: ignore RSA-UNSAFE-BLOCK",
+    "    unsafe { *ptr }",
+    "}",
+    "",
+    "pub fn expired_suppression(ptr: *const u8) -> u8 {",
+    "    // rustsec-auditor: ignore RSA-UNSAFE-BLOCK until=2000-01-01 -- temporary accepted risk expired",
+    "    unsafe { *ptr }",
+    "}"
+  );
+  return `${lines.join("\n")}\n`;
+}
+
+function testFinding(input: {
+  id: string;
+  ruleId: string;
+  severity: Finding["severity"];
+  confidence: Finding["confidence"];
+  category: Finding["category"];
+}): Finding {
+  return {
+    id: input.id,
+    ruleId: input.ruleId,
+    title: "Synthetic test finding",
+    severity: input.severity,
+    confidence: input.confidence,
+    category: input.category,
+    file: "src/lib.rs",
+    startLine: 10,
+    evidence: ["Line 10: synthetic evidence"],
+    whyItMatters: "Synthetic test finding for decision logic.",
+    riskScenario: "The decision logic could overstate a low-confidence finding.",
+    suggestedFix: "Confirm the finding before changing code."
+  };
 }
 
 async function withMcpClient(callback: (client: Client) => Promise<void>): Promise<void> {

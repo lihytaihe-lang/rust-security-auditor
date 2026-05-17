@@ -52,7 +52,22 @@ Remember that current diff review is file-level. It scans findings in diff-affec
 
 ## Findings Look Noisy
 
-Interpret findings using both severity and confidence. Low-confidence findings are manual-review targets, not confirmed vulnerabilities. If code is intentionally risky and reviewed, recommend a narrow inline suppression for the specific `ruleId` only when the user asks how to handle accepted noise.
+Interpret findings using both severity and confidence. Low-confidence findings are manual-review targets, not confirmed vulnerabilities. If code is intentionally risky and reviewed, recommend a narrow inline suppression for the specific `ruleId` only when the user asks how to handle accepted noise or the tool returns `recommendedAction: "suppress_if_accepted"`.
+
+## Suppression Is Missing Or Ignored
+
+Use the formal accepted-risk format:
+
+```rust
+// rustsec-auditor: ignore RULE_ID -- reason
+// rustsec-auditor: ignore RULE_ID owner=@name ticket=SEC-123 until=YYYY-MM-DD -- reason
+```
+
+The reason after `--` is required. The rule id must be exact; broad `ignore all` or `ignore *` is not supported. If the directive is missing a reason or uses unsupported metadata, the finding is shown and the result includes `invalidSuppressionCount` plus an `invalidSuppression` explanation in `suppressedFindings`.
+
+## Expired Suppression Reappeared
+
+This is expected. When `until=YYYY-MM-DD` is before the current date, the suppression is no longer active, the finding is shown again, `expiredSuppressionCount` increases, and `rust_review_current_diff.reviewDecision.status` is at least `needs_attention`. Review the risk again, fix the code, or explicitly renew the accepted-risk record with a fresh reason and tracking metadata.
 
 ## User Asks For A Full Security Guarantee
 

@@ -51,6 +51,12 @@ export interface McpAuditSummary {
   severityCounts: Record<Severity, number>;
   categoryCounts: Record<Category, number>;
   riskLevel: RiskLevel;
+  introducedFindingCount?: number | undefined;
+  nearChangedFindingCount?: number | undefined;
+  preExistingFindingCount?: number | undefined;
+  blockingCount?: number | undefined;
+  manualReviewCount?: number | undefined;
+  nonBlockingCount?: number | undefined;
 }
 
 export interface McpAuditError {
@@ -73,9 +79,43 @@ export interface FindingDiffContext {
 export interface DiffAwareFinding {
   finding: Finding;
   diffContext: FindingDiffContext;
+  actionability?: FindingActionability | undefined;
+  suppression?: SuppressedFinding | undefined;
 }
 
 export type DiffReviewMode = "working_tree" | "staged" | "range";
+export type ReviewDecisionStatus = "pass" | "needs_attention" | "block";
+export type RecommendedAction = "fix_before_commit" | "manual_review" | "monitor" | "suppress_if_accepted";
+
+export interface ReviewDecision {
+  status: ReviewDecisionStatus;
+  reason: string;
+  blockingFindingIds: string[];
+  needsManualReviewFindingIds: string[];
+  safeToCommit: boolean;
+}
+
+export interface FindingActionability {
+  recommendedAction: RecommendedAction;
+  canCodexFix: boolean;
+  suggestedFixPrompt: string;
+  suppressionSuggestion?: string | undefined;
+}
+
+export interface SuppressionSummary {
+  suppressedCount: number;
+  expiredSuppressionCount: number;
+  invalidSuppressionCount: number;
+}
+
+export interface DiffReviewSummaryMetrics {
+  introducedFindingCount: number;
+  nearChangedFindingCount: number;
+  preExistingFindingCount: number;
+  blockingCount: number;
+  manualReviewCount: number;
+  nonBlockingCount: number;
+}
 
 export interface DiffReviewDetails {
   mode: DiffReviewMode;
@@ -99,7 +139,9 @@ export interface McpAuditToolOutput {
     files: GitDiffFile[];
   };
   diffReview?: DiffReviewDetails;
+  reviewDecision?: ReviewDecision;
   enrichedFindings?: DiffAwareFinding[];
   suppressedFindings?: SuppressedFinding[];
+  suppressionSummary?: SuppressionSummary;
   error?: McpAuditError;
 }

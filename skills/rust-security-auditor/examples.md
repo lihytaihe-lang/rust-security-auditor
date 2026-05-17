@@ -17,13 +17,16 @@ Expected behavior:
 - Review findings marked `introduced_by_diff` or `near_changed_lines`.
 - Mention hidden `pre_existing_in_changed_file` counts when present, and offer `includePreExisting: true` only if the user wants historical risks in changed files.
 - Prioritize `critical`, `high`, and `medium` findings.
+- Use `reviewDecision.status` as the commit recommendation.
+- Include `suggestedFixPrompt` values for blocking or manual-review findings when useful.
 - Explain that current diff review is changed-line aware but still not full data-flow or taint analysis.
 - End with a commit recommendation.
 
 Expected Codex response shape:
 
 ```text
-Overall risk: high_risk
+Decision: block
+Safe to commit: no
 
 Blocking issues:
 - RSA-BUILD-COMMAND in build.rs:4 is high confidence/high severity and is marked introduced_by_diff because the changed line adds a build-script shell command.
@@ -34,6 +37,9 @@ Recommended fixes:
 Manual review needed:
 - Confirm whether this command can be influenced by environment variables, workspace files, or user input.
 
+Suggested Codex fix prompt:
+- Please fix RSA-BUILD-COMMAND at build.rs:4 by using absolute tool paths or allowlisted commands, validating arguments, and avoiding untrusted environment values.
+
 Commit recommendation:
 - Do not commit yet. Fix or explicitly accept the high-severity build-script risk first.
 ```
@@ -41,9 +47,14 @@ Commit recommendation:
 Tool-output cues to use:
 
 - `enrichedFindings[].diffContext.relation`
+- `enrichedFindings[].actionability.recommendedAction`
+- `enrichedFindings[].actionability.suggestedFixPrompt`
 - `nearestChangedLine` and `distance`
-- `diffReview.conclusion`
+- `reviewDecision.status`, `reason`, and `safeToCommit`
 - `diffReview.hiddenPreExistingCount`
+- `summary.blockingCount`, `manualReviewCount`, and `nonBlockingCount`
+- `suppressionSummary.suppressedCount`, `expiredSuppressionCount`, and `invalidSuppressionCount`
+- `suppressedFindings[]`
 
 ## Example 2: Unsafe-Specific Audit
 
@@ -143,7 +154,7 @@ Manual review needed:
 - Review Cargo git/path dependencies and build dependencies for supply-chain trust.
 
 False positives / suppressions:
-- If a finding is intentional and reviewed, use a narrow inline suppression for the specific rule id with a reason.
+- If a finding is intentional and reviewed, use a narrow inline suppression for the specific rule id with a required reason and preferably owner, ticket, and until.
 
 Release recommendation:
 - Do not release until high-severity findings are resolved. This result is a heuristic audit, not a formal security proof.
@@ -160,15 +171,18 @@ User:
 Expected behavior:
 
 - Call `rust_review_current_diff`.
-- Treat `critical` and `high` findings marked `introduced_by_diff` as commit blockers.
+- Treat `critical` and `high` findings marked `introduced_by_diff` as commit blockers when confidence is not low.
 - Treat `medium` findings marked `introduced_by_diff` as context-dependent.
 - Treat `near_changed_lines` findings as invariant review targets.
+- Treat low-confidence findings as manual-review / accepted-risk items, not confirmed vulnerabilities.
+- Treat low/info findings as non-blocking notes unless policy requires more.
 - Keep the output scoped to security, not style.
 
 Expected Codex response shape:
 
 ```text
-Overall risk: pass
+Decision: pass
+Safe to commit: yes
 
 Blocking issues:
 - None.
@@ -180,7 +194,44 @@ Commit recommendation:
 - The security diff review does not block this commit. This is not a complete security proof.
 ```
 
-## Example 6: Project Check Before Release
+## Example 6: Accepted Risk Suppression Workflow
+
+User:
+
+```text
+@Rust Security Auditor review current diff and explain suppressions
+```
+
+Expected behavior:
+
+- Call `rust_review_current_diff`.
+- Report `suppressionSummary` even when active suppressions hide findings.
+- List active accepted risks from `suppressedFindings`.
+- If `expiredSuppressionCount` is non-zero, explain that those findings are shown again and need review.
+- If `invalidSuppressionCount` is non-zero, explain that the directive is ignored until fixed.
+- Do not add suppression comments automatically.
+- Do not suggest suppression as the primary action for high-confidence blockers.
+
+Expected Codex response shape:
+
+```text
+Decision: needs_attention
+Safe to commit: no
+
+Accepted / suppressed risks:
+- 1 active suppression: RSA-UNSAFE-BLOCK at src/lib.rs:42, reason: legacy FFI wrapper reviewed; owner: @security; ticket: SEC-123; until: 2026-12-31.
+- 1 expired suppression: RSA-UNSAFE-BLOCK at src/lib.rs:58 is shown again because until=2026-01-01 has passed.
+- 1 invalid suppression: RSA-UNSAFE-BLOCK at src/lib.rs:73 is ignored because the required reason after `--` is missing.
+
+Suggested Codex prompts:
+- Please fix RSA-... at file:line by applying the smallest safe code change.
+- If this risk is intentional, add a rustsec-auditor suppression comment with a clear reason, owner, and ticket.
+
+Commit recommendation:
+- Do not commit yet. Review the expired/invalid suppression entries and either fix the code or update the accepted-risk record deliberately.
+```
+
+## Example 7: Project Check Before Release
 
 User:
 

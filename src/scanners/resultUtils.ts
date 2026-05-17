@@ -25,18 +25,43 @@ export async function finalizeScannerResult(
 ): Promise<ScannerResult> {
   const uniqueFindings = dedupeFindings(findings);
   const { findings: unsuppressedFindings, suppressedFindings } = await applySuppressions(workspacePath, uniqueFindings);
+  const suppressedCount = countActiveSuppressions(suppressedFindings);
+  const expiredSuppressionCount = countExpiredSuppressions(suppressedFindings);
+  const invalidSuppressionCount = countInvalidSuppressions(suppressedFindings);
   const finalWarnings = [...warnings];
 
-  if (suppressedFindings.length > 0) {
-    finalWarnings.push(`${suppressedFindings.length} finding(s) suppressed by rustsec-auditor inline directives.`);
+  if (suppressedCount > 0) {
+    finalWarnings.push(`${suppressedCount} finding(s) suppressed by rustsec-auditor inline directives.`);
+  }
+
+  if (expiredSuppressionCount > 0) {
+    finalWarnings.push(`${expiredSuppressionCount} expired rustsec-auditor suppression directive(s) were ignored; findings are shown again.`);
+  }
+
+  if (invalidSuppressionCount > 0) {
+    finalWarnings.push(`${invalidSuppressionCount} invalid rustsec-auditor suppression directive(s) were ignored; use an exact rule id and a '-- reason'.`);
   }
 
   return {
     findings: sortFindings(options.includeSuppressed === true ? uniqueFindings : unsuppressedFindings),
     warnings: finalWarnings,
-    suppressedCount: suppressedFindings.length,
+    suppressedCount,
+    expiredSuppressionCount,
+    invalidSuppressionCount,
     suppressedFindings
   };
+}
+
+export function countActiveSuppressions(suppressions: readonly SuppressedFinding[]): number {
+  return suppressions.filter((suppression) => suppression.isValid && !suppression.isExpired).length;
+}
+
+export function countExpiredSuppressions(suppressions: readonly SuppressedFinding[]): number {
+  return suppressions.filter((suppression) => suppression.isExpired).length;
+}
+
+export function countInvalidSuppressions(suppressions: readonly SuppressedFinding[]): number {
+  return suppressions.filter((suppression) => !suppression.isValid).length;
 }
 
 export function dedupeFindings(findings: readonly Finding[]): Finding[] {
@@ -84,20 +109,18 @@ async function applySuppressions(
     }
 
     const lines = await cachedLines(workspacePath, finding.file, lineCache);
-    const suppression = findSuppression(lines, startLine, finding.ruleId);
+    const suppression = findSuppression(lines, startLine, finding);
 
     if (suppression === undefined) {
       unsuppressed.push(finding);
       continue;
     }
 
-    suppressedFindings.push({
-      ruleId: finding.ruleId,
-      file: finding.file,
-      line: startLine,
-      reason: suppression.reason,
-      directiveLine: suppression.line
-    });
+    suppressedFindings.push(suppression.record);
+
+    if (!suppression.isActive) {
+      unsuppressed.push(finding);
+    }
   }
 
   return { findings: unsuppressed, suppressedFindings };
@@ -119,34 +142,161 @@ async function cachedLines(
 function findSuppression(
   lines: readonly string[],
   lineNumber: number,
-  ruleId: string
-): { line: number; reason: string } | undefined {
+  finding: Finding
+): { record: SuppressedFinding; isActive: boolean } | undefined {
   const start = Math.max(1, lineNumber - 3);
   const end = Math.min(lines.length, lineNumber);
+  let globalIgnoreCandidate: { record: SuppressedFinding; isActive: boolean } | undefined;
 
   for (let current = end; current >= start; current -= 1) {
     const text = lines[current - 1] ?? "";
     const suppression = parseSuppressionDirective(text);
     if (suppression === undefined) continue;
 
-    if (
-      suppression.ruleId === ruleId ||
-      suppression.ruleId === "*" ||
-      suppression.ruleId.toLowerCase() === "all"
-    ) {
-      return { line: current, reason: suppression.reason };
+    if (isGlobalIgnoreToken(suppression.ruleId)) {
+      globalIgnoreCandidate ??= createSuppressionMatch(finding, current, suppression, [
+        "Global rustsec-auditor ignore directives are not supported; suppress a specific rule id instead."
+      ]);
+      continue;
+    }
+
+    if (suppression.ruleId === finding.ruleId) {
+      return createSuppressionMatch(finding, current, suppression);
     }
   }
 
-  return undefined;
+  return globalIgnoreCandidate;
 }
 
-function parseSuppressionDirective(line: string): { ruleId: string; reason: string } | undefined {
-  const match = /rustsec-auditor:\s*ignore\s+([A-Za-z0-9*_-]+)(?:\s+(.+))?/i.exec(line);
+interface ParsedSuppressionDirective {
+  ruleId: string;
+  reason: string;
+  owner?: string;
+  ticket?: string;
+  until?: string;
+  rawComment: string;
+  invalidReasons: string[];
+}
+
+function parseSuppressionDirective(line: string): ParsedSuppressionDirective | undefined {
+  const match = /rustsec-auditor:\s*ignore\s+(\S+)(.*)$/i.exec(line);
   if (match === null || match[1] === undefined) return undefined;
 
+  const ruleId = match[1].trim();
+  const remainder = match[2]?.trim() ?? "";
+  const delimiterIndex = remainder.indexOf("--");
+  const metadataText = delimiterIndex === -1 ? remainder : remainder.slice(0, delimiterIndex).trim();
+  const reason = delimiterIndex === -1 ? "" : remainder.slice(delimiterIndex + 2).trim();
+  const invalidReasons: string[] = [];
+  const metadata: Pick<ParsedSuppressionDirective, "owner" | "ticket" | "until"> = {};
+
+  if (reason.length === 0) {
+    invalidReasons.push("Suppression reason is required after '--'.");
+  }
+
+  if (!isGlobalIgnoreToken(ruleId) && !/^[A-Za-z0-9_-]+$/.test(ruleId)) {
+    invalidReasons.push("Suppression rule id must be a concrete rule id.");
+  }
+
+  for (const token of metadataText.length === 0 ? [] : metadataText.split(/\s+/)) {
+    if (token.startsWith("owner=")) {
+      const owner = token.slice("owner=".length).trim();
+      if (owner.length === 0) {
+        invalidReasons.push("Suppression owner must be non-empty when provided.");
+      } else {
+        metadata.owner = owner;
+      }
+      continue;
+    }
+
+    if (token.startsWith("ticket=")) {
+      const ticket = token.slice("ticket=".length).trim();
+      if (ticket.length === 0) {
+        invalidReasons.push("Suppression ticket must be non-empty when provided.");
+      } else {
+        metadata.ticket = ticket;
+      }
+      continue;
+    }
+
+    if (token.startsWith("until=")) {
+      const until = token.slice("until=".length).trim();
+      if (!isValidIsoDate(until)) {
+        invalidReasons.push("Suppression until must use YYYY-MM-DD.");
+      } else {
+        metadata.until = until;
+      }
+      continue;
+    }
+
+    invalidReasons.push(`Unsupported suppression metadata '${token}'.`);
+  }
+
   return {
-    ruleId: match[1],
-    reason: match[2]?.trim() ?? "No reason provided"
+    ruleId,
+    reason,
+    rawComment: line.trim(),
+    invalidReasons,
+    ...metadata
   };
+}
+
+function createSuppressionMatch(
+  finding: Finding,
+  directiveLine: number,
+  suppression: ParsedSuppressionDirective,
+  extraInvalidReasons: readonly string[] = []
+): { record: SuppressedFinding; isActive: boolean } {
+  const invalidReasons = [...suppression.invalidReasons, ...extraInvalidReasons];
+  const isValid = invalidReasons.length === 0;
+  const isExpired = suppression.until === undefined ? false : isPastDate(suppression.until);
+  const record: SuppressedFinding = {
+    ruleId: finding.ruleId,
+    file: finding.file,
+    line: finding.startLine ?? directiveLine,
+    directiveLine,
+    reason: suppression.reason,
+    isExpired,
+    isValid,
+    rawComment: suppression.rawComment
+  };
+
+  if (suppression.owner !== undefined) record.owner = suppression.owner;
+  if (suppression.ticket !== undefined) record.ticket = suppression.ticket;
+  if (suppression.until !== undefined) record.until = suppression.until;
+  if (!isValid) record.invalidSuppression = invalidReasons.join(" ");
+
+  return {
+    record,
+    isActive: isValid && !isExpired
+  };
+}
+
+function isGlobalIgnoreToken(ruleId: string): boolean {
+  return ruleId === "*" || ruleId.toLowerCase() === "all";
+}
+
+function isValidIsoDate(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (match === null) return false;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+function isPastDate(value: string): boolean {
+  return value < todayIsoDate();
+}
+
+function todayIsoDate(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
 }

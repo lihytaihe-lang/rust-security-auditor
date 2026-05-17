@@ -43,7 +43,7 @@
     },
     {
       "name": "rust_review_current_diff",
-      "whenToUse": "Before commit or PR to review findings introduced by or near Git diff changed lines.",
+      "whenToUse": "Before commit, before PR, after Codex generated code, or after touching unsafe/dependencies/build.rs. Returns reviewDecision, suppressionSummary, and suggestedFixPrompt values without modifying code or adding suppressions.",
       "arguments": {
         "projectPath": "/absolute/path/to/rust/project",
         "baseRef": "main",

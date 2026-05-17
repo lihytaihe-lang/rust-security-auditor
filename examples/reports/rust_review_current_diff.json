@@ -27,7 +27,28 @@
         "panic_dos": 0,
         "manual_review": 0
       },
-      "riskLevel": "needs_attention"
+      "riskLevel": "needs_attention",
+      "introducedFindingCount": 2,
+      "nearChangedFindingCount": 0,
+      "preExistingFindingCount": 2,
+      "blockingCount": 0,
+      "manualReviewCount": 2,
+      "nonBlockingCount": 0
+    },
+    "suppressionSummary": {
+      "suppressedCount": 0,
+      "expiredSuppressionCount": 0,
+      "invalidSuppressionCount": 0
+    },
+    "reviewDecision": {
+      "status": "needs_attention",
+      "reason": "No hard blockers were found, but the diff has medium-severity, nearby, or low-confidence findings that need human review before commit.",
+      "blockingFindingIds": [],
+      "needsManualReviewFindingIds": [
+        "RSA-UNSAFE-FN-EXAMPLE",
+        "RSA-UNSAFE-BLOCK-EXAMPLE"
+      ],
+      "safeToCommit": false
     },
     "findings": [
       {
@@ -69,6 +90,7 @@
         ]
       }
     ],
+    "reportMarkdown": "# Rust Security Review: Current Diff\n\n## Decision\n\nNEEDS ATTENTION\n\n- Safe to commit: No\n- Reason: No hard blockers were found, but the diff has medium-severity, nearby, or low-confidence findings that need human review before commit.\n- Blocking findings: 0\n- Manual review findings: 2\n\n## Summary\n\n- Introduced risks: 2\n- Near changed lines: 0\n- Pre-existing risks shown: 0\n- Suppressed: 0\n- Expired suppressions: 0\n- Invalid suppressions: 0\n- Scope: <temp-git-fixture>/repo\n- Diff mode: working_tree\n- Changed files: 1\n- Changed-line window: 5\n- Hidden pre-existing findings: 2\n\n## Blocking Issues\n\nNone.\n\n## Needs Manual Review\n\n### RSA-UNSAFE-FN: Unsafe function requires a caller safety contract\n\n- Severity: Medium\n- Confidence: High\n- Rule: RSA-UNSAFE-FN\n- Location: `src/lib.rs:42`\n- Diff relation: introduced_by_diff\n- Recommended action: manual_review\n- Can Codex fix: No\n\n## Non-blocking Notes\n\nNone.\n\n## Accepted / Suppressed Risks\n\n- Suppressed count: 0\n- Expired suppression count: 0\n- Invalid suppression count: 0\n\nNone.\n\n## Suggested Codex Fix Prompts\n\n- Please review RSA-UNSAFE-FN at src/lib.rs:42, confirm whether the reported invariant is real, and then propose the smallest safe fix if it is valid.\n- Please review RSA-UNSAFE-BLOCK at src/lib.rs:43, confirm whether the reported invariant is real, and then propose the smallest safe fix if it is valid.\n\n## Limitations\n\n- Heuristic static scan.\n- Not full AST/data-flow/taint analysis.\n- Diff relation based on changed lines.\n",
     "warnings": [
       "rust_review_current_diff is changed-line aware, but it is still heuristic scanner output rather than full data-flow or taint analysis."
     ],
@@ -149,6 +171,11 @@
           "relation": "introduced_by_diff",
           "nearestChangedLine": 42,
           "distance": 0
+        },
+        "actionability": {
+          "recommendedAction": "manual_review",
+          "canCodexFix": false,
+          "suggestedFixPrompt": "Please review RSA-UNSAFE-FN at src/lib.rs:42, confirm whether the reported invariant is real, and then propose the smallest safe fix if it is valid."
         }
       },
       {
@@ -175,6 +202,11 @@
           "relation": "introduced_by_diff",
           "nearestChangedLine": 43,
           "distance": 0
+        },
+        "actionability": {
+          "recommendedAction": "manual_review",
+          "canCodexFix": false,
+          "suggestedFixPrompt": "Please review RSA-UNSAFE-BLOCK at src/lib.rs:43, confirm whether the reported invariant is real, and then propose the smallest safe fix if it is valid."
         }
       }
     ]

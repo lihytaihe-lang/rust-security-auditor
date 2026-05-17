@@ -2,9 +2,9 @@
 
 Rust Security Auditor is a local TypeScript kernel and MCP server for low-noise Rust security review in Codex and other MCP clients. It is intentionally scoped to Rust security findings: unsafe/FFI, dependency and supply-chain risk, command execution, filesystem/path handling, input boundaries, secrets, panic/DoS, and manual-review items.
 
-This repository is currently at Phase 5. It provides a local scanner kernel, a changed-line-aware stdio MCP server, and a Codex Skill / Plugin usage layer for natural `@Rust Security Auditor` calls inside a local Codex project context. It does not provide a ChatGPT App, web UI, SaaS upload flow, uploaded code package scanning, or generic code review.
+This repository is currently at Phase 7. It provides a local scanner kernel, a PR-review-style changed-line-aware stdio MCP server, accepted-risk suppression workflow UX, and a Codex Skill / Plugin usage layer for natural `@Rust Security Auditor` calls inside a local Codex project context. It does not provide a ChatGPT App, web UI, SaaS upload flow, uploaded code package scanning, or generic code review.
 
-## Phase 5 Contents
+## Phase 7 Contents
 
 - TypeScript project configuration
 - Stable Finding schema and validation helpers
@@ -17,11 +17,14 @@ This repository is currently at Phase 5. It provides a local scanner kernel, a c
 - `DependencyScanner` for deterministic Cargo/build.rs supply-chain risk clues
 - `scanRustProject` convenience entrypoint that returns `Finding[]`
 - Centralized rule metadata with stable `ruleId` values
-- Finding deduplication, severity/confidence sorting, and inline suppression
+- Finding deduplication, severity/confidence sorting, and accepted-risk inline suppression
 - Fixtures for vulnerable, safe, documented unsafe, dependency-risk, and suppressed projects
 - Local MCP server in `src/mcp/` using the official Model Context Protocol TypeScript SDK
 - MCP tools for full project audit, unsafe/FFI audit, dependency/supply-chain audit, and current diff review
 - Changed-line-aware `rust_review_current_diff` output with `introduced_by_diff`, `near_changed_lines`, and `pre_existing_in_changed_file` metadata
+- PR-review-style `rust_review_current_diff` output with `reviewDecision`, summary metrics, finding actionability, accepted/suppressed risk reporting, and Codex-ready `suggestedFixPrompt` values
+- Structured suppression metadata for reason, owner, ticket, until, expired status, invalid status, and raw directive comments
+- Suppression summary counts for active, expired, and invalid suppression directives
 - Local MCP debug caller for invoking tools without an MCP client
 - Codex/MCP client stdio configuration documentation
 - Example MCP client config and sanitized MCP validation outputs under `examples/`
@@ -35,7 +38,8 @@ This repository is currently at Phase 5. It provides a local scanner kernel, a c
 - Scanner kernel ready.
 - MCP server ready.
 - Codex usage layer ready.
-- Changed-line-aware current diff review ready.
+- PR-review-style current diff review ready.
+- Accepted-risk suppression workflow ready.
 - ChatGPT App, SaaS, uploaded code packages, and Deep Audit / release-gate workflows are not implemented here.
 
 ## Install
@@ -119,7 +123,7 @@ The server uses `@modelcontextprotocol/sdk` and registers these tools:
 - `rust_audit_project`: use before a release or for a full-project Rust security health check.
 - `rust_audit_unsafe`: use for specialized unsafe / FFI review, including unsafe blocks, raw-memory primitives, extern boundaries, and unsafe Send/Sync impls.
 - `rust_audit_dependencies`: use for Cargo dependency and supply-chain review.
-- `rust_review_current_diff`: use before commit or PR to review findings introduced by or near current Git diff hunks.
+- `rust_review_current_diff`: use before commit, before PR, after Codex generated code, or after touching unsafe/dependencies/build.rs to review findings introduced by or near current Git diff hunks. It returns `reviewDecision`, `suppressionSummary`, and Codex-ready `suggestedFixPrompt` values for displayed findings. It does not automatically modify code or add suppressions.
 
 All tools return structured content with this shape:
 
@@ -213,10 +217,38 @@ Current diff review parses unified diff hunks, scans only files touched by the s
 
 By default, `rust_review_current_diff` returns only `introduced_by_diff` and `near_changed_lines` findings. Set `includePreExisting: true` to include historical findings from changed files. This is still heuristic scanner output; it is not full data-flow, control-flow, or taint analysis.
 
+Current diff review uses a PR-review decision model:
+
+- `block`: a commit/PR blocker. Introduced `critical` or `high` findings with `medium` or `high` confidence block. High-confidence `high` or `critical` findings near changed lines can also block because the diff may have changed the surrounding invariant.
+- `needs_attention`: not a hard blocker, but requires human review before commit. Introduced `medium` findings, nearby `medium` findings, and low-confidence findings land here.
+- `pass`: no blocking or manual-review findings were reported. Low or informational findings with non-low confidence are treated as non-blocking notes.
+
+Low-confidence findings must not be described as confirmed vulnerabilities. They are review targets: Codex should help inspect the invariant, but the user should confirm the context before treating them as real bugs. When the tool returns `recommendedAction: "suppress_if_accepted"`, it also returns a `suppressionSuggestion`. That suggestion is for a user-approved accepted-risk record, not an instruction to silently change code. High-confidence blockers should be fixed before commit instead of suppressed by default.
+
 For `rust_review_current_diff`, structured output keeps the compatible top-level `findings` array and adds diff-specific fields:
 
 ```json
 {
+  "reviewDecision": {
+    "status": "needs_attention",
+    "reason": "No hard blockers were found, but the diff has medium-severity, nearby, or low-confidence findings that need human review before commit.",
+    "blockingFindingIds": [],
+    "needsManualReviewFindingIds": ["RSA-UNSAFE-BLOCK-91AA22BF"],
+    "safeToCommit": false
+  },
+  "summary": {
+    "introducedFindingCount": 1,
+    "nearChangedFindingCount": 0,
+    "preExistingFindingCount": 2,
+    "blockingCount": 0,
+    "manualReviewCount": 1,
+    "nonBlockingCount": 0
+  },
+  "suppressionSummary": {
+    "suppressedCount": 1,
+    "expiredSuppressionCount": 0,
+    "invalidSuppressionCount": 0
+  },
   "diffAffectedFiles": ["src/lib.rs"],
   "diff": {
     "files": [
@@ -248,11 +280,19 @@ For `rust_review_current_diff`, structured output keeps the compatible top-level
         "relation": "introduced_by_diff",
         "nearestChangedLine": 12,
         "distance": 0
+      },
+      "actionability": {
+        "recommendedAction": "suppress_if_accepted",
+        "canCodexFix": false,
+        "suggestedFixPrompt": "If this risk is intentional, add a rustsec-auditor suppression comment for RSA-UNSAFE-BLOCK at src/lib.rs:12 with a clear reason, owner, and ticket.",
+        "suppressionSuggestion": "// rustsec-auditor: ignore RSA-UNSAFE-BLOCK -- explain why this risk is acceptable"
       }
     }
   ]
 }
 ```
+
+When `outputFormat: "markdown"` is requested, current diff review renders as a PR review with `Decision`, `Summary`, `Blocking Issues`, `Needs Manual Review`, `Non-blocking Notes`, `Accepted / Suppressed Risks`, `Suggested Codex Fix Prompts`, and `Limitations` sections instead of a plain findings dump.
 
 ### Local Tool Debugging
 
@@ -360,16 +400,47 @@ Every emitted finding includes `ruleId`, `file`, `startLine`, `category`, `sever
 
 ## Suppression
 
-Use an inline suppression comment near the finding when a deterministic rule is noisy for reviewed code:
+Use an inline suppression comment near the finding only when the finding is a reviewed false positive or an intentionally accepted risk. Suppression is an accepted-risk record, not a way to make the tool quiet without accountability.
 
 ```rust
 pub fn read_byte(ptr: *const u8) -> u8 {
-    // rustsec-auditor: ignore RSA-UNSAFE-BLOCK legacy FFI wrapper reviewed in host project
+    // rustsec-auditor: ignore RSA-UNSAFE-BLOCK owner=@security ticket=SEC-123 until=2026-12-31 -- legacy FFI wrapper reviewed in host project
     unsafe { *ptr }
 }
 ```
 
-The scanner looks on the finding line and up to three preceding lines. The rule token can be a concrete rule id, `*`, or `all`. Suppressed findings are not included in `findings`; scan results expose `suppressedCount`, `suppressedFindings`, and a warning note.
+Supported formats:
+
+```rust
+// rustsec-auditor: ignore RULE_ID -- reason
+// rustsec-auditor: ignore RULE_ID until=YYYY-MM-DD -- reason
+// rustsec-auditor: ignore RULE_ID owner=@name -- reason
+// rustsec-auditor: ignore RULE_ID ticket=SEC-123 -- reason
+```
+
+The scanner looks on the finding line and up to three preceding lines. Suppression is exact-rule only: `RULE_ID` must be the concrete finding rule id. Broad `ignore all` or `ignore *` directives are intentionally not supported. The reason after `--` is required. `owner`, `ticket`, and `until` are optional but recommended so future reviewers know who accepted the risk, where it is tracked, and when it should be revisited.
+
+Active valid suppressions are omitted from `findings`, counted in `suppressedCount`, and included in `suppressedFindings` with structured metadata:
+
+```json
+{
+  "ruleId": "RSA-UNSAFE-BLOCK",
+  "file": "src/lib.rs",
+  "line": 42,
+  "directiveLine": 41,
+  "reason": "legacy FFI wrapper reviewed in host project",
+  "owner": "@security",
+  "ticket": "SEC-123",
+  "until": "2026-12-31",
+  "isExpired": false,
+  "isValid": true,
+  "rawComment": "// rustsec-auditor: ignore RSA-UNSAFE-BLOCK owner=@security ticket=SEC-123 until=2026-12-31 -- legacy FFI wrapper reviewed in host project"
+}
+```
+
+Expired suppressions are not treated as active; the finding is shown again, the suppression is marked with `isExpired: true`, and `rust_review_current_diff.reviewDecision.status` is at least `needs_attention`. Invalid suppressions, including missing reasons or broad ignore directives, are ignored, counted in `invalidSuppressionCount`, and include `invalidSuppression` explaining what must be fixed.
+
+Use suppression for false positives or risks that have been explicitly reviewed and accepted. Do not use it to bypass high-confidence blockers; those should default to `fix_before_commit` unless the user makes a deliberate risk-acceptance decision.
 
 ## Output Examples
 
