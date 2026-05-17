@@ -262,3 +262,174 @@ Implemented polish:
 - Nearby findings in a different function or unsafe site are downgraded to non-blocking context notes; unknown context is still shown with an explicit "near changed code, not necessarily introduced" note.
 - Markdown groups findings that share an unsafe site, such as a generic unsafe block plus a specific primitive finding. This is a UX grouping only; JSON findings remain separate.
 - `suggestedFixPrompt` now includes rule id, file/line, function context, diff relation, changed-line context, and the rule-specific suggested fix, and asks Codex to explain the invariant before editing.
+
+## Second Dogfood After Phase 10
+
+Date: 2026-05-17
+
+This second dogfood pass validated the Phase 10 diff-review polish only. It did not add scanner rules, change MCP tool behavior, build a ChatGPT App, create SaaS/upload flows, or enter deep-audit/release-gate mode.
+
+### Diff Review Fixtures
+
+Two temporary git copies were used:
+
+1. A focused diff-review fixture with committed baseline Rust code, then a working-tree diff that:
+   - inserted `// touched near legacy unsafe` close to an existing `legacy_near` unsafe function;
+   - appended `grouped_transmute`, which contains `unsafe { std::mem::transmute(value) }`.
+2. A repeat of the earlier dogfood shape using a temporary copy of `test/fixtures/vulnerable-rust-project`, then appending:
+
+```rust
+pub fn dogfood_added(ptr: *const u8) -> u8 {
+    unsafe { *ptr }
+}
+```
+
+### `rust_review_current_diff`
+
+Focused fixture results:
+
+- Default compact report:
+  - Result: 4 visible findings, `riskLevel: needs_attention`, `safeToCommit: false`.
+  - Diff relations: 2 `introduced_by_diff`, 2 `near_changed_lines`, 2 hidden pre-existing findings.
+  - Defaults confirmed: `reportMode: compact`, `pathMode: relative`, `nearChangedLineWindow: 3`.
+  - Markdown size: about 4.1k characters.
+  - Markdown did not contain the temporary absolute repo path; scope rendered as `.` and locations rendered as `src/lib.rs`.
+- Explicit `pathMode=relative`:
+  - Same result as default.
+  - Markdown still did not contain the temporary absolute repo path.
+- `reportMode=full`:
+  - Same finding set as default.
+  - Markdown size: about 6.8k characters.
+  - Included `Changed Files`, `Non-blocking Notes`, full evidence, and full recommendation details.
+  - Still used relative paths in Markdown.
+- Default `nearChangedLineWindow=3`:
+  - Correctly surfaced the newly introduced transmute unsafe site.
+  - Also surfaced two nearby legacy findings from `legacy_near`.
+- `nearChangedLineWindow=1`:
+  - Result: 2 visible findings, both `introduced_by_diff`.
+  - `near_changed_lines` dropped to 0.
+  - Hidden pre-existing findings increased to 4.
+- `nearChangedLineWindow=0`:
+  - Same visible result as window 1 for this fixture: only the introduced transmute unsafe site remained.
+- `introduced_by_diff` finding:
+  - Confirmed on `RSA-UNSAFE-BLOCK` and `RSA-UNSAFE-TRANSMUTE` at the appended transmute line.
+- `near_changed_lines` finding:
+  - Confirmed on the nearby legacy unsafe function and unsafe block when the window remained at the default 3.
+- Unsafe site grouping:
+  - Confirmed: the generic unsafe block and the transmute-specific finding were grouped into one `Unsafe site at src/lib.rs:39`.
+  - The grouped output reduced duplicate reading pressure for the newly introduced unsafe site.
+- `suggestedFixPrompt`:
+  - Confirmed for each visible diff finding.
+  - Prompts now include rule id, relative location, function context, diff relation, nearest changed line, and the rule-specific suggested fix.
+
+Earlier-style vulnerable fixture repeat:
+
+- Default compact report:
+  - Result: 3 visible findings, `riskLevel: needs_attention`, `safeToCommit: false`.
+  - Diff relations: 1 `introduced_by_diff`, 2 `near_changed_lines`, 13 hidden pre-existing findings.
+  - Markdown did not contain the temporary absolute repo path.
+  - The nearby old `take` findings were grouped into one unsafe site: `RSA-UNSAFE-FN` plus `RSA-UNSAFE-BOX-FROM-RAW`.
+- `nearChangedLineWindow=1`:
+  - Result: 1 visible finding, the introduced unsafe block in `dogfood_added`.
+  - `near_changed_lines` dropped to 0.
+  - Hidden pre-existing findings increased to 15.
+
+### Phase 10 Experience Comparison
+
+- Absolute paths in Markdown:
+  - Fixed for diff review. Markdown now uses `Scope: .` and relative locations such as `src/lib.rs:39`.
+  - JSON still includes the resolved `projectPath`, which is useful for tool consumers and was not pasted into Markdown.
+- Compact report for PR comments:
+  - Better than the earlier full finding template. It leads with the decision, summary, grouped review items, prompts, and limitations.
+  - It omits evidence blocks by default, which makes it more suitable for PR comments. `reportMode=full` remains available when a reviewer needs evidence and recommendation detail.
+- `near_changed_lines` noise:
+  - Improved in controllability, but not fully solved by the default window.
+  - In both temporary diff shapes, the default window of 3 can still surface nearby legacy unsafe findings when a change is adjacent to old unsafe code.
+  - `nearChangedLineWindow=1` or `0` made the reports much quieter and preserved the introduced findings.
+  - The remaining rough edge is lightweight Rust context: some nearby findings are still classified with unknown function/site matching, so they stay as manual-review items rather than clearly non-blocking context.
+- Unsafe site grouping:
+  - Helpful. It grouped generic unsafe findings with specific primitive findings at the same site, including `RSA-UNSAFE-BLOCK` plus `RSA-UNSAFE-TRANSMUTE`, and the earlier-style `take` unsafe site.
+  - This reduces repeated reading pressure, especially when generic unsafe-block findings overlap with more specific primitive rules.
+- `suggestedFixPrompt`:
+  - More usable than before. The prompts are now specific enough to hand back to Codex without restating the rule, location, relation, or likely repair direction.
+  - Remaining issue: prompts are still one per finding, not one per unsafe-site group. A grouped prompt could be less repetitive.
+- Remaining issues:
+  - Default diff review can still feel noisy when the changed line is adjacent to pre-existing unsafe code.
+  - Prompt volume grows with findings even when Markdown groups them.
+  - Non-diff audits remain verbose for day-to-day use.
+  - The minimal Rust context heuristic is useful, but the remaining false/noisy cases suggest AST-aware context may eventually be worth a spike.
+
+### Other Tool Smoke Tests
+
+- `rust_audit_project` on `test/fixtures/vulnerable-rust-project`: normal, 21 findings, `riskLevel: high_risk`.
+- `rust_audit_unsafe` on `test/fixtures/vulnerable-rust-project`: normal, 15 findings, `riskLevel: needs_attention`.
+- `rust_audit_dependencies` on `test/fixtures/dependency-risk`: normal, 7 findings, `riskLevel: high_risk`.
+- `rust_list_accepted_risks` on `test/fixtures/suppressed-rust-project` with expired and invalid records included: normal, 6 records total, with 4 active, 1 expired, and 1 invalid.
+
+### Phase 11 Verification
+
+Passed after this document update:
+
+```bash
+npm run typecheck
+npm test
+git diff --check
+```
+
+- `npm run typecheck`: passed.
+- `npm test`: passed, 47 tests passed.
+- `git diff --check`: passed.
+
+### Phase 12 Recommendation
+
+Recommended direction: **A. Phase 12 should continue optimizing diff review / minimal Rust context.**
+
+Rationale:
+
+- Phase 10 clearly improved path privacy, PR-comment compactness, unsafe-site grouping, and Codex-ready prompts.
+- The remaining highest-friction issue is still diff-review noise from `near_changed_lines` when a small change lands next to legacy unsafe Rust.
+- Before adding compact modes for non-diff audits or a release audit report, Phase 12 should tighten minimal Rust context enough to better distinguish "same unsafe site/function" from merely nearby old code, and consider grouped prompts per unsafe site.
+
+Fallback option if that work proves too heuristic-heavy: **D. AST-aware Rust parsing spike** focused only on diff-review context precision, not broad scanner-rule expansion.
+
+## Phase 12 Diff Review Context Precision
+
+Date: 2026-05-17
+
+Phase 12 stayed inside diff-review precision and report UX. It did not add deep-audit gates, ChatGPT App behavior, SaaS/upload flows, broad scanner rules, or full AST/data-flow/taint analysis.
+
+Implemented precision changes:
+
+- `near_changed_lines` is now split into concrete context relations:
+  - `same_unsafe_site_context`: finding and added line share the same unsafe block/site.
+  - `same_function_context`: finding and added line share the same function, but not the same unsafe site.
+  - `nearby_legacy_context`: finding is line-near an added line but lightweight Rust context puts it in a different function or unsafe site.
+  - `unrelated_nearby`: finding is line-near an added line but no function or unsafe-site tie was confirmed.
+- Compact diff review now shows `introduced_by_diff`, `same_unsafe_site_context`, and medium+ `same_function_context` with medium/high confidence.
+- Compact diff review hides `nearby_legacy_context`, `unrelated_nearby`, and low/info context findings by default.
+- Full diff review can show legacy nearby context under `Legacy nearby findings hidden by default`, clearly separated from introduced/current-diff sections.
+- `reviewDecision` is now primarily driven by `introduced_by_diff`. Same unsafe-site high findings can move the decision to `needs_attention`, but do not hard-block by default. Same-function medium/high findings enter manual review. Nearby legacy context does not affect `safeToCommit` unless `includePreExisting=true`.
+- `suggestedFixPrompt` is strong only for `introduced_by_diff` and `same_unsafe_site_context`. `same_function_context` prompts ask for human confirmation first. `nearby_legacy_context` receives only a legacy-context note and no strong repair instruction.
+
+Test coverage added or updated:
+
+- Added unsafe block stays classified as `introduced_by_diff` in compact review.
+- Nearby old findings in a different function are hidden from compact review.
+- Full report shows legacy nearby context without changing `safeToCommit`.
+- Old unsafe in the same function is marked `same_function_context`.
+- Old primitive in the same unsafe site is marked `same_unsafe_site_context`.
+- Same unsafe-site high findings need attention but do not hard-block.
+- Nearby legacy context affects `safeToCommit` only when `includePreExisting=true`.
+- Suggested fix prompt for nearby legacy context is not a strong fix prompt.
+
+Verification during Phase 12:
+
+```bash
+npm run typecheck
+npm test
+git diff --check
+```
+
+- `npm run typecheck`: passed.
+- `npm test`: passed, 53 tests passed.
+- `git diff --check`: passed.

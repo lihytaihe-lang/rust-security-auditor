@@ -31,7 +31,7 @@ Always pass the current local Rust project directory as `projectPath` unless the
 
 ## Tool Selection
 
-Call `rust_review_current_diff` when the user asks for current diff, before commit, before PR, changed files, staged changes, or branch review. It parses git diff hunks and marks findings as `introduced_by_diff`, `near_changed_lines`, or `pre_existing_in_changed_file`.
+Call `rust_review_current_diff` when the user asks for current diff, before commit, before PR, changed files, staged changes, or branch review. It parses git diff hunks and marks findings as `introduced_by_diff`, `same_unsafe_site_context`, `same_function_context`, `nearby_legacy_context`, `unrelated_nearby`, or `pre_existing_in_changed_file`.
 
 Defaults for `rust_review_current_diff`:
 
@@ -41,8 +41,8 @@ Defaults for `rust_review_current_diff`:
 - Use `pathMode: "relative"` by default when generating Markdown, especially for reports that may be pasted into PRs or shared outside the local machine.
 - Use `reportMode: "compact"` by default for Codex / PR comments; use `reportMode: "full"` only when the user asks for full evidence/details.
 - Use `nearChangedLineWindow: 3` by default. Lower it to `1` or `2` when near-line noise is too high.
-- By default, present only `introduced_by_diff` and `near_changed_lines`.
-- Treat `near_changed_lines` as contextual reminders near changed code, not proof that the diff introduced the finding.
+- By default, present `introduced_by_diff`, `same_unsafe_site_context`, and medium-or-higher `same_function_context` with medium/high confidence.
+- Treat `nearby_legacy_context` and `unrelated_nearby` as hidden legacy context in compact reports; use `reportMode: "full"` when the user asks to inspect it separately.
 - Use `includePreExisting: true` only when the user asks to see historical risks in changed files.
 - Use `reviewDecision.status` as the primary commit/PR recommendation: `block`, `needs_attention`, or `pass`.
 - Use `enrichedFindings[].actionability.recommendedAction` and `suggestedFixPrompt` when the user asks what Codex should do next.
@@ -98,7 +98,9 @@ Before commit:
 
 - Block by default on `critical` or `high` findings marked `introduced_by_diff` when confidence is `high` or `medium`.
 - Treat `medium` findings marked `introduced_by_diff` as "needs developer confirmation".
-- Treat `near_changed_lines` as context. Only escalate nearby high/critical findings when confidence is high and lightweight function/unsafe-site context still ties them to the changed area; otherwise present them as manual review or non-blocking notes.
+- Treat `same_unsafe_site_context` high findings as `needs_attention`, not default blockers.
+- Treat `same_function_context` medium/high findings as manual review when confidence is medium/high.
+- Treat `nearby_legacy_context` and `unrelated_nearby` as non-blocking legacy context unless `includePreExisting: true` was explicitly requested.
 - Put low-confidence findings in manual review / accepted-risk flow, not in hard blockers.
 - Treat only low/info findings with non-low confidence as pass-level non-blocking notes.
 - Hide or summarize `pre_existing_in_changed_file` findings unless `includePreExisting: true` was requested.

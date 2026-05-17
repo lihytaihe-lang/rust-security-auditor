@@ -8,33 +8,62 @@ import type {
   ReviewDecision
 } from "./types.js";
 
-export function shouldDisplayDiffFinding(item: DiffAwareFinding, includePreExisting: boolean): boolean {
+export interface DiffReviewPolicyOptions {
+  includePreExisting?: boolean | undefined;
+  reportMode?: "compact" | "full" | undefined;
+}
+
+export function shouldDisplayDiffFinding(
+  item: DiffAwareFinding,
+  includePreExisting: boolean,
+  reportMode: "compact" | "full" = "compact"
+): boolean {
   if (item.suppression?.isExpired === true || item.suppression?.isValid === false) {
+    return true;
+  }
+
+  if (reportMode === "full" && item.diffContext.relation !== "pre_existing_in_changed_file") {
     return true;
   }
 
   switch (item.diffContext.relation) {
     case "introduced_by_diff":
       return true;
-    case "near_changed_lines":
-      return isAtLeastSeverity(item.finding.severity, "medium") && isMediumOrHighConfidence(item.finding.confidence);
+    case "same_unsafe_site_context":
+      return isRelevantContextFinding(item);
+    case "same_function_context":
+      return isRelevantContextFinding(item);
+    case "nearby_legacy_context":
+      return includePreExisting && isRelevantContextFinding(item);
+    case "unrelated_nearby":
+      return false;
     case "pre_existing_in_changed_file":
       return includePreExisting;
   }
 }
 
-export function withDiffReviewActionability(findings: readonly DiffAwareFinding[]): DiffAwareFinding[] {
+function isRelevantContextFinding(item: DiffAwareFinding): boolean {
+  return isAtLeastSeverity(item.finding.severity, "medium") && isMediumOrHighConfidence(item.finding.confidence);
+}
+
+export function withDiffReviewActionability(
+  findings: readonly DiffAwareFinding[],
+  options: DiffReviewPolicyOptions = {}
+): DiffAwareFinding[] {
   return findings.map((item) => ({
     ...item,
-    actionability: actionabilityForDiffFinding(item)
+    actionability: actionabilityForDiffFinding(item, options)
   }));
 }
 
-export function actionabilityForDiffFinding(item: DiffAwareFinding): FindingActionability {
-  const recommendedAction = recommendedActionForDiffFinding(item);
+export function actionabilityForDiffFinding(
+  item: DiffAwareFinding,
+  options: DiffReviewPolicyOptions = {}
+): FindingActionability {
+  const recommendedAction = recommendedActionForDiffFinding(item, options);
   const actionability: FindingActionability = {
     recommendedAction,
-    canCodexFix: recommendedAction === "fix_before_commit" && item.finding.confidence !== "low",
+    canCodexFix: canCodexFixFinding(item, recommendedAction),
     suggestedFixPrompt: suggestedFixPrompt(item, recommendedAction)
   };
 
@@ -45,8 +74,11 @@ export function actionabilityForDiffFinding(item: DiffAwareFinding): FindingActi
   return actionability;
 }
 
-export function inferReviewDecision(findings: readonly DiffAwareFinding[]): ReviewDecision {
-  const actionableFindings = withDiffReviewActionability(findings);
+export function inferReviewDecision(
+  findings: readonly DiffAwareFinding[],
+  options: DiffReviewPolicyOptions = {}
+): ReviewDecision {
+  const actionableFindings = withDiffReviewActionability(findings, options);
   const blockingFindingIds = actionableFindings
     .filter((item) => item.actionability?.recommendedAction === "fix_before_commit")
     .map((item) => item.finding.id);
@@ -62,7 +94,7 @@ export function inferReviewDecision(findings: readonly DiffAwareFinding[]): Revi
     return {
       status: "block",
       reason:
-        "The reviewed diff has high or critical security findings with enough confidence to block before commit.",
+        "The reviewed diff introduced high or critical security findings with enough confidence to block before commit.",
       blockingFindingIds,
       needsManualReviewFindingIds,
       safeToCommit: false
@@ -73,7 +105,7 @@ export function inferReviewDecision(findings: readonly DiffAwareFinding[]): Revi
     return {
       status: "needs_attention",
       reason:
-        "No hard blockers were found, but the diff has medium-severity, nearby, or low-confidence findings that need human review before commit.",
+        "No hard blockers were found, but introduced findings or directly related same-function/same-unsafe-site context need human review before commit.",
       blockingFindingIds,
       needsManualReviewFindingIds,
       safeToCommit: false
@@ -84,8 +116,8 @@ export function inferReviewDecision(findings: readonly DiffAwareFinding[]): Revi
     status: "pass",
     reason:
       findings.length === 0
-        ? "No introduced or nearby security findings were reported for the reviewed diff."
-        : "Only non-blocking findings were reported for the reviewed diff.",
+        ? "No introduced or directly related security findings were reported for the reviewed diff."
+        : "Only non-blocking legacy or low-risk context was reported for the reviewed diff.",
     blockingFindingIds,
     needsManualReviewFindingIds,
     safeToCommit: true
@@ -104,7 +136,11 @@ export function summarizeDiffReviewMetrics(input: {
 
   return {
     introducedFindingCount: countRelation(input.allFindings, "introduced_by_diff"),
-    nearChangedFindingCount: countRelation(input.visibleFindings, "near_changed_lines"),
+    nearChangedFindingCount: countContextRelations(input.visibleFindings),
+    sameUnsafeSiteContextFindingCount: countRelation(input.allFindings, "same_unsafe_site_context"),
+    sameFunctionContextFindingCount: countRelation(input.allFindings, "same_function_context"),
+    nearbyLegacyContextFindingCount: countRelation(input.allFindings, "nearby_legacy_context"),
+    unrelatedNearbyFindingCount: countRelation(input.allFindings, "unrelated_nearby"),
     preExistingFindingCount: countRelation(input.allFindings, "pre_existing_in_changed_file"),
     hiddenNearChangedFindingCount: input.hiddenNearChangedCount,
     unsafeSiteGroupCount: input.unsafeSiteGroupCount,
@@ -127,7 +163,10 @@ export function conclusionFromReviewDecision(decision: ReviewDecision): "Safe to
   }
 }
 
-function recommendedActionForDiffFinding(item: DiffAwareFinding): RecommendedAction {
+function recommendedActionForDiffFinding(
+  item: DiffAwareFinding,
+  options: DiffReviewPolicyOptions
+): RecommendedAction {
   if (item.suppression?.isExpired === true || item.suppression?.isValid === false) {
     return "manual_review";
   }
@@ -136,23 +175,32 @@ function recommendedActionForDiffFinding(item: DiffAwareFinding): RecommendedAct
     return "fix_before_commit";
   }
 
+  if (isLegacyNearbyContext(item) && options.includePreExisting !== true) {
+    return "monitor";
+  }
+
   if (item.finding.confidence === "low") {
     return "suppress_if_accepted";
   }
 
-  if (isNearChangedDifferentContext(item)) {
-    return "monitor";
+  switch (item.diffContext.relation) {
+    case "introduced_by_diff":
+      return isAtLeastSeverity(item.finding.severity, "medium") ? "manual_review" : "monitor";
+    case "same_unsafe_site_context":
+      return isAtLeastSeverity(item.finding.severity, "medium") ? "manual_review" : "monitor";
+    case "same_function_context":
+      return isAtLeastSeverity(item.finding.severity, "medium") && isMediumOrHighConfidence(item.finding.confidence)
+        ? "manual_review"
+        : "monitor";
+    case "nearby_legacy_context":
+      return options.includePreExisting === true && isAtLeastSeverity(item.finding.severity, "medium")
+        ? "manual_review"
+        : "monitor";
+    case "unrelated_nearby":
+      return "monitor";
+    case "pre_existing_in_changed_file":
+      return isAtLeastSeverity(item.finding.severity, "medium") ? "manual_review" : "suppress_if_accepted";
   }
-
-  if (item.diffContext.relation === "pre_existing_in_changed_file") {
-    return isAtLeastSeverity(item.finding.severity, "medium") ? "manual_review" : "suppress_if_accepted";
-  }
-
-  if (isAtLeastSeverity(item.finding.severity, "medium")) {
-    return "manual_review";
-  }
-
-  return "monitor";
 }
 
 function isBlockingDiffFinding(item: DiffAwareFinding): boolean {
@@ -164,26 +212,20 @@ function isBlockingDiffFinding(item: DiffAwareFinding): boolean {
     return false;
   }
 
-  if (item.diffContext.relation === "introduced_by_diff") {
-    return true;
-  }
+  return item.diffContext.relation === "introduced_by_diff";
+}
 
-  if (isNearChangedDifferentContext(item)) {
-    return false;
-  }
-
+function canCodexFixFinding(item: DiffAwareFinding, recommendedAction: RecommendedAction): boolean {
   return (
-    item.diffContext.relation === "near_changed_lines" &&
-    item.diffContext.contextAssessment === "same_function_or_unsafe_site" &&
-    item.finding.confidence === "high"
+    recommendedAction === "fix_before_commit" &&
+    item.finding.confidence !== "low" &&
+    (item.diffContext.relation === "introduced_by_diff" ||
+      item.diffContext.relation === "same_unsafe_site_context")
   );
 }
 
-function isNearChangedDifferentContext(item: DiffAwareFinding): boolean {
-  return (
-    item.diffContext.relation === "near_changed_lines" &&
-    item.diffContext.contextAssessment === "different_function_or_unsafe_site"
-  );
+function isLegacyNearbyContext(item: DiffAwareFinding): boolean {
+  return item.diffContext.relation === "nearby_legacy_context" || item.diffContext.relation === "unrelated_nearby";
 }
 
 function isMediumOrHighConfidence(confidence: Confidence): boolean {
@@ -213,6 +255,16 @@ function countRelation(findings: readonly DiffAwareFinding[], relation: FindingD
   return findings.filter((item) => item.diffContext.relation === relation).length;
 }
 
+function countContextRelations(findings: readonly DiffAwareFinding[]): number {
+  return findings.filter(
+    (item) =>
+      item.diffContext.relation === "same_unsafe_site_context" ||
+      item.diffContext.relation === "same_function_context" ||
+      item.diffContext.relation === "nearby_legacy_context" ||
+      item.diffContext.relation === "unrelated_nearby"
+  ).length;
+}
+
 function suggestedFixPrompt(item: DiffAwareFinding, recommendedAction: RecommendedAction): string {
   const finding = item.finding;
   const location = formatFindingLocation(finding);
@@ -221,6 +273,14 @@ function suggestedFixPrompt(item: DiffAwareFinding, recommendedAction: Recommend
   const changedContext = formatChangedLineContext(item);
   const relation = relationPhrase(item);
   const ruleFix = sentenceToLowercase(finding.suggestedFix);
+
+  if (item.diffContext.relation === "nearby_legacy_context" || item.diffContext.relation === "unrelated_nearby") {
+    return `Legacy context near the current diff: ${finding.ruleId} at ${location}${functionPhrase}. Review separately; do not treat this as a required fix for the current diff.`;
+  }
+
+  if (item.diffContext.relation === "same_function_context") {
+    return `Please manually confirm ${finding.ruleId} at ${location}${functionPhrase}. ${relation}${changedContext} This is pre-existing context in the same function as the current diff; first decide whether the changed code can affect this invariant before proposing a fix.`;
+  }
 
   if (finding.confidence === "low") {
     return `Please review low-confidence ${finding.ruleId} at ${location}${functionPhrase}. ${relation}${changedContext} Do not modify code yet; first confirm whether the finding is real, then explain the safest fix or document why the risk is accepted.`;
@@ -242,8 +302,14 @@ function relationPhrase(item: DiffAwareFinding): string {
   switch (item.diffContext.relation) {
     case "introduced_by_diff":
       return "This finding appears introduced by the current diff.";
-    case "near_changed_lines":
-      return "This finding is near changed code, not necessarily introduced by the current diff.";
+    case "same_unsafe_site_context":
+      return "This finding is pre-existing context in the same unsafe site touched by the current diff.";
+    case "same_function_context":
+      return "This finding is pre-existing context in the same function touched by the current diff.";
+    case "nearby_legacy_context":
+      return "This finding is nearby legacy context, not part of the changed function or unsafe site.";
+    case "unrelated_nearby":
+      return "This finding is only line-near the current diff and has no confirmed function or unsafe-site tie.";
     case "pre_existing_in_changed_file":
       return "This finding appears pre-existing in a file touched by the current diff.";
   }
@@ -260,7 +326,7 @@ function formatChangedLineContext(item: DiffAwareFinding): string {
     parts.push(`changed-line function ${item.diffContext.nearestChangedFunctionName}`);
   }
 
-  if (item.diffContext.contextAssessment === "unknown" && item.diffContext.relation === "near_changed_lines") {
+  if (item.diffContext.contextAssessment === "unknown" && item.diffContext.relation === "unrelated_nearby") {
     parts.push("function/site match unknown");
   }
 

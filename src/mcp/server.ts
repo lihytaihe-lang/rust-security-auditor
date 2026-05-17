@@ -141,7 +141,7 @@ export function createRustSecurityAuditorMcpServer(): McpServer {
           .min(0)
           .max(50)
           .optional()
-          .describe("Line window for near_changed_lines classification. Defaults to 3."),
+          .describe("Line window for nearby legacy context classification. Defaults to 3."),
         outputFormat: outputFormatSchema
           .optional()
           .describe("Omit or set to json for structured JSON; set to markdown to also include reportMarkdown text for display."),

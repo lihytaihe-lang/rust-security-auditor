@@ -84,7 +84,10 @@ export interface McpAuditError {
 
 export type DiffRelation =
   | "introduced_by_diff"
-  | "near_changed_lines"
+  | "same_unsafe_site_context"
+  | "same_function_context"
+  | "nearby_legacy_context"
+  | "unrelated_nearby"
   | "pre_existing_in_changed_file"
   | "unrelated";
 
@@ -116,7 +119,14 @@ export interface DiffAwareFinding {
 export type DiffReviewMode = "working_tree" | "staged" | "range";
 export type ReviewDecisionStatus = "pass" | "needs_attention" | "block";
 export type RecommendedAction = "fix_before_commit" | "manual_review" | "monitor" | "suppress_if_accepted";
-export type DiffContextAssessment = "same_function_or_unsafe_site" | "different_function_or_unsafe_site" | "unknown";
+export type DiffContextAssessment =
+  | "introduced"
+  | "same_unsafe_site"
+  | "same_function"
+  | "nearby_legacy"
+  | "unrelated_nearby"
+  | "pre_existing"
+  | "unknown";
 export type UnsafeSiteKind = "unsafe_block" | "unsafe_fn" | "unsafe_impl" | "extern_c";
 
 export interface RustFunctionContext {
@@ -191,6 +201,10 @@ export interface AcceptedRisk {
 export interface DiffReviewSummaryMetrics {
   introducedFindingCount: number;
   nearChangedFindingCount: number;
+  sameUnsafeSiteContextFindingCount: number;
+  sameFunctionContextFindingCount: number;
+  nearbyLegacyContextFindingCount: number;
+  unrelatedNearbyFindingCount: number;
   preExistingFindingCount: number;
   hiddenNearChangedFindingCount: number;
   unsafeSiteGroupCount: number;

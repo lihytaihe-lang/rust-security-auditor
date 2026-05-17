@@ -164,14 +164,15 @@ export async function rustReviewCurrentDiff(input: RustReviewCurrentDiffInput): 
     );
     const includePreExisting = input.includePreExisting === true;
     const enrichedFindings = withDiffReviewActionability(
-      allEnrichedFindings.filter((item) => shouldDisplayDiffFinding(item, includePreExisting))
+      allEnrichedFindings.filter((item) => shouldDisplayDiffFinding(item, includePreExisting, reportMode)),
+      { includePreExisting, reportMode }
     );
     const hiddenNearChangedCount = countHiddenNearChangedFindings(allEnrichedFindings, enrichedFindings);
     const reviewGroups = buildReviewGroups(enrichedFindings);
     const unsafeSiteGroupCount = reviewGroups.filter((group) => group.unsafeSite !== undefined).length;
     const findings = enrichedFindings.map((item) => item.finding);
     const relationCounts = countRelations(allEnrichedFindings);
-    const reviewDecision = inferReviewDecision(enrichedFindings);
+    const reviewDecision = inferReviewDecision(enrichedFindings, { includePreExisting, reportMode });
     const summaryMetrics = summarizeDiffReviewMetrics({
       allFindings: allEnrichedFindings,
       visibleFindings: enrichedFindings,
@@ -186,9 +187,7 @@ export async function rustReviewCurrentDiff(input: RustReviewCurrentDiffInput): 
       reportMode,
       pathMode,
       includePreExisting,
-      includedRelations: includePreExisting
-        ? ["introduced_by_diff", "near_changed_lines", "pre_existing_in_changed_file"]
-        : ["introduced_by_diff", "near_changed_lines"],
+      includedRelations: includedDiffRelations(includePreExisting, reportMode),
       relationCounts,
       hiddenPreExistingCount: countHiddenPreExistingFindings(allEnrichedFindings, enrichedFindings),
       hiddenNearChangedCount,
@@ -199,7 +198,7 @@ export async function rustReviewCurrentDiff(input: RustReviewCurrentDiffInput): 
       ...scan.warnings,
       ...gitDiff.warnings,
       "rust_review_current_diff is changed-line aware, but it is still heuristic scanner output rather than full data-flow or taint analysis.",
-      "near_changed_lines findings are contextual reminders near changed code; they are not necessarily introduced by the current diff."
+      "near_changed_lines is split into same_unsafe_site_context, same_function_context, nearby_legacy_context, and unrelated_nearby relations."
     ];
 
     if (diffAffectedFiles.length === 0) {
@@ -656,15 +655,11 @@ function renderDiffReviewMarkdown(input: {
   diffReview: DiffReviewDetails;
   reviewDecision: NonNullable<McpAuditToolOutput["reviewDecision"]>;
 }): string {
-  const blockingIds = new Set(input.reviewDecision.blockingFindingIds);
-  const manualReviewIds = new Set(input.reviewDecision.needsManualReviewFindingIds);
-  const blockingFindings = input.findings.filter((item) => blockingIds.has(item.finding.id));
-  const manualReviewFindings = input.findings.filter((item) => manualReviewIds.has(item.finding.id));
-  const nonBlockingFindings = input.findings.filter(
-    (item) => !blockingIds.has(item.finding.id) && !manualReviewIds.has(item.finding.id)
-  );
   const preExistingShown = input.findings.filter((item) => item.diffContext.relation === "pre_existing_in_changed_file").length;
-  const nearChangedShown = input.findings.filter((item) => item.diffContext.relation === "near_changed_lines").length;
+  const sameUnsafeSiteShown = input.findings.filter((item) => item.diffContext.relation === "same_unsafe_site_context").length;
+  const sameFunctionShown = input.findings.filter((item) => item.diffContext.relation === "same_function_context").length;
+  const legacyNearbyShown = input.findings.filter((item) => item.diffContext.relation === "nearby_legacy_context").length;
+  const unrelatedNearbyShown = input.findings.filter((item) => item.diffContext.relation === "unrelated_nearby").length;
   const lines: string[] = [
     "# Rust Security Review: Current Diff",
     "",
@@ -680,7 +675,10 @@ function renderDiffReviewMarkdown(input: {
     "## Summary",
     "",
     `- Introduced findings: ${input.diffReview.relationCounts.introduced_by_diff}`,
-    `- Near changed findings: ${nearChangedShown}`,
+    `- Same unsafe-site context findings: ${input.diffReview.relationCounts.same_unsafe_site_context}`,
+    `- Same-function context findings: ${input.diffReview.relationCounts.same_function_context}`,
+    `- Legacy nearby findings: ${input.diffReview.relationCounts.nearby_legacy_context}`,
+    `- Unrelated nearby findings: ${input.diffReview.relationCounts.unrelated_nearby}`,
     `- Hidden pre-existing findings: ${input.diffReview.hiddenPreExistingCount}`,
     `- Unsafe sites grouped: ${input.diffReview.unsafeSiteGroupCount}`,
     `- Suppressed: ${input.suppressionSummary.suppressedCount}`,
@@ -691,40 +689,66 @@ function renderDiffReviewMarkdown(input: {
     `- Report mode: ${input.reportMode}`,
     `- Changed files: ${input.diffAffectedFiles.length}`,
     `- Changed-line window: ${input.diffReview.changedLineWindow}`,
-    "- near_changed_lines means the finding is near changed code, not necessarily introduced by the current diff."
+    "- Diff context is split by added lines, same unsafe site, same function, and legacy nearby relation."
   ];
 
   if (preExistingShown > 0) {
     lines.push(`- Pre-existing findings shown: ${preExistingShown}`);
   }
 
+  if (sameUnsafeSiteShown > 0 || sameFunctionShown > 0 || legacyNearbyShown > 0 || unrelatedNearbyShown > 0) {
+    lines.push(
+      `- Context findings shown: ${sameUnsafeSiteShown + sameFunctionShown + legacyNearbyShown + unrelatedNearbyShown}`
+    );
+  }
+
   if (input.diffReview.hiddenNearChangedCount > 0) {
-    lines.push(`- Hidden near-changed findings: ${input.diffReview.hiddenNearChangedCount}`);
+    lines.push(`- Hidden context findings: ${input.diffReview.hiddenNearChangedCount}`);
   }
 
   if (input.reportMode === "full") {
     appendChangedFiles(lines, input.diffAffectedFiles, input.projectPath, input.pathMode);
   }
 
-  appendReviewFindingSection(lines, {
-    title: "Blocking Issues",
-    findings: blockingFindings,
+  appendRelationReviewSection(lines, {
+    title: "Introduced by this diff",
+    emptyText: "No findings start on added lines in this diff.",
+    findings: input.findings.filter((item) => item.diffContext.relation === "introduced_by_diff"),
     projectPath: input.projectPath,
     pathMode: input.pathMode,
     reportMode: input.reportMode
   });
-  appendReviewFindingSection(lines, {
-    title: "Needs Manual Review",
-    findings: manualReviewFindings,
+  appendRelationReviewSection(lines, {
+    title: "Relevant context in same unsafe site",
+    emptyText: "No visible findings share an unsafe site with added lines.",
+    findings: input.findings.filter((item) => item.diffContext.relation === "same_unsafe_site_context"),
+    projectPath: input.projectPath,
+    pathMode: input.pathMode,
+    reportMode: input.reportMode
+  });
+  appendRelationReviewSection(lines, {
+    title: "Relevant context in same function",
+    emptyText: "No visible findings share a function with added lines outside an unsafe site.",
+    findings: input.findings.filter((item) => item.diffContext.relation === "same_function_context"),
+    projectPath: input.projectPath,
+    pathMode: input.pathMode,
+    reportMode: input.reportMode
+  });
+  appendLegacyNearbySection(lines, {
+    findings: input.findings.filter(
+      (item) => item.diffContext.relation === "nearby_legacy_context" || item.diffContext.relation === "unrelated_nearby"
+    ),
+    hiddenCount: input.diffReview.hiddenNearChangedCount,
     projectPath: input.projectPath,
     pathMode: input.pathMode,
     reportMode: input.reportMode
   });
 
   if (input.reportMode === "full") {
-    appendReviewFindingSection(lines, {
-      title: "Non-blocking Notes",
-      findings: nonBlockingFindings,
+    appendRelationReviewSection(lines, {
+      title: "Pre-existing findings in changed files",
+      emptyText: "No pre-existing findings are included. Set includePreExisting=true to include them.",
+      findings: input.findings.filter((item) => item.diffContext.relation === "pre_existing_in_changed_file"),
       projectPath: input.projectPath,
       pathMode: input.pathMode,
       reportMode: input.reportMode
@@ -755,24 +779,21 @@ function appendChangedFiles(
   }
 }
 
-function appendReviewFindingSection(
+function appendRelationReviewSection(
   lines: string[],
   input: {
-    title: "Blocking Issues" | "Needs Manual Review" | "Non-blocking Notes";
+    title: string;
+    emptyText: string;
     findings: readonly DiffAwareFinding[];
     projectPath: string;
     pathMode: PathMode;
     reportMode: DiffReportMode;
   }
 ): void {
-  if (input.findings.length === 0 && input.reportMode === "compact") {
-    return;
-  }
-
   lines.push("", `## ${input.title}`, "");
 
   if (input.findings.length === 0) {
-    lines.push(`No ${input.title.toLowerCase()}.`);
+    lines.push(input.emptyText);
     return;
   }
 
@@ -781,15 +802,47 @@ function appendReviewFindingSection(
   }
 }
 
+function appendLegacyNearbySection(
+  lines: string[],
+  input: {
+    findings: readonly DiffAwareFinding[];
+    hiddenCount: number;
+    projectPath: string;
+    pathMode: PathMode;
+    reportMode: DiffReportMode;
+  }
+): void {
+  lines.push("", "## Legacy nearby findings hidden by default", "");
+
+  if (input.reportMode === "compact") {
+    if (input.hiddenCount === 0) {
+      lines.push("No legacy nearby findings were hidden.");
+      return;
+    }
+
+    lines.push(
+      `${input.hiddenCount} legacy nearby or unrelated context finding(s) were hidden from this compact report. Use reportMode=full to inspect them separately.`
+    );
+    return;
+  }
+
+  if (input.findings.length === 0) {
+    lines.push("No legacy nearby or unrelated context findings were found.");
+    return;
+  }
+
+  lines.push("Shown because reportMode=full; these findings are separate legacy context, not default commit blockers.");
+  for (const group of buildInternalReviewGroups(input.findings)) {
+    lines.push("", ...formatReviewGroup(group, input.projectPath, input.pathMode, input.reportMode));
+  }
+}
+
 function appendSuggestedFixPrompts(
   lines: string[],
   findings: readonly DiffAwareFinding[],
   reportMode: DiffReportMode
 ): void {
-  const promptFindings =
-    reportMode === "compact"
-      ? findings.filter((item) => item.actionability?.recommendedAction !== "monitor")
-      : findings;
+  const promptFindings = findings.filter(shouldShowSuggestedFixPrompt);
 
   if (promptFindings.length === 0 && reportMode === "compact") {
     return;
@@ -805,6 +858,14 @@ function appendSuggestedFixPrompts(
   for (const item of promptFindings) {
     lines.push(`- ${item.actionability?.suggestedFixPrompt ?? "No suggested fix prompt available."}`);
   }
+}
+
+function shouldShowSuggestedFixPrompt(item: DiffAwareFinding): boolean {
+  return (
+    item.diffContext.relation === "introduced_by_diff" ||
+    item.diffContext.relation === "same_unsafe_site_context" ||
+    item.diffContext.relation === "same_function_context"
+  );
 }
 
 function appendSuppressedRisks(
@@ -1111,8 +1172,12 @@ function formatContextNote(item: DiffAwareFinding): string | undefined {
     return item.diffContext.contextNote;
   }
 
-  if (item.diffContext.relation === "near_changed_lines") {
-    return "near changed code, not necessarily introduced";
+  if (item.diffContext.relation === "nearby_legacy_context") {
+    return "legacy context near changed lines; review separately";
+  }
+
+  if (item.diffContext.relation === "unrelated_nearby") {
+    return "line-near context with no confirmed function or unsafe-site tie";
   }
 
   return undefined;
@@ -1332,9 +1397,39 @@ function classifyFindingAgainstDiff(
     }, finding, rustContext, nearestChangedLine);
   }
 
+  const nearestSameUnsafeSiteLine = nearestAddedLineMatchingContext(
+    line,
+    addedLines,
+    rustContext,
+    "same_unsafe_site_context"
+  );
+  if (nearestSameUnsafeSiteLine !== undefined) {
+    return withRustContext({
+      relation: "same_unsafe_site_context",
+      nearestChangedLine: nearestSameUnsafeSiteLine,
+      distance: Math.abs(line - nearestSameUnsafeSiteLine)
+    }, finding, rustContext, nearestSameUnsafeSiteLine);
+  }
+
+  const nearestSameFunctionLine = nearestAddedLineMatchingContext(
+    line,
+    addedLines,
+    rustContext,
+    "same_function_context"
+  );
+  if (nearestSameFunctionLine !== undefined) {
+    return withRustContext({
+      relation: "same_function_context",
+      nearestChangedLine: nearestSameFunctionLine,
+      distance: Math.abs(line - nearestSameFunctionLine)
+    }, finding, rustContext, nearestSameFunctionLine);
+  }
+
   if (distance !== undefined && distance <= nearLineWindow) {
     return withRustContext({
-      relation: "near_changed_lines",
+      relation: isKnownDifferentRustContext(line, nearestChangedLine, rustContext)
+        ? "nearby_legacy_context"
+        : "unrelated_nearby",
       nearestChangedLine,
       distance
     }, finding, rustContext, nearestChangedLine);
@@ -1399,40 +1494,120 @@ function withRustContext(
     );
   }
 
-  if (context.relation === "near_changed_lines") {
-    enriched.contextAssessment = assessNearChangedContext(enriched);
-    enriched.contextNote = nearChangedContextNote(enriched.contextAssessment);
+  if (isContextRelation(context.relation)) {
+    enriched.contextAssessment = assessDiffContext(enriched);
+    enriched.contextNote = diffContextNote(enriched.contextAssessment);
   }
 
   return enriched;
+}
+
+function nearestAddedLineMatchingContext(
+  findingLine: number,
+  addedLines: readonly number[],
+  rustContext: RustFileContext | undefined,
+  relation: "same_unsafe_site_context" | "same_function_context"
+): number | undefined {
+  const findingLineContext = contextForLine(rustContext, findingLine);
+  let nearest: number | undefined;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+
+  for (const addedLine of addedLines) {
+    const changedLineContext = contextForLine(rustContext, addedLine);
+    const matches =
+      relation === "same_unsafe_site_context"
+        ? findingLineContext.unsafeSite !== undefined &&
+          changedLineContext.unsafeSite !== undefined &&
+          sameUnsafeSite(findingLineContext.unsafeSite, changedLineContext.unsafeSite)
+        : findingLineContext.functionContext !== undefined &&
+          changedLineContext.functionContext !== undefined &&
+          findingLineContext.functionContext.name === changedLineContext.functionContext.name &&
+          findingLineContext.functionContext.startLine === changedLineContext.functionContext.startLine;
+
+    if (!matches) continue;
+
+    const distance = Math.abs(findingLine - addedLine);
+    if (distance < nearestDistance) {
+      nearest = addedLine;
+      nearestDistance = distance;
+    }
+  }
+
+  return nearest;
+}
+
+function isKnownDifferentRustContext(
+  findingLine: number,
+  changedLine: number | undefined,
+  rustContext: RustFileContext | undefined
+): boolean {
+  if (changedLine === undefined) return false;
+
+  const findingLineContext = contextForLine(rustContext, findingLine);
+  const changedLineContext = contextForLine(rustContext, changedLine);
+
+  if (findingLineContext.unsafeSite !== undefined && changedLineContext.unsafeSite !== undefined) {
+    return !sameUnsafeSite(findingLineContext.unsafeSite, changedLineContext.unsafeSite);
+  }
+
+  if (findingLineContext.functionContext !== undefined && changedLineContext.functionContext !== undefined) {
+    return (
+      findingLineContext.functionContext.name !== changedLineContext.functionContext.name ||
+      findingLineContext.functionContext.startLine !== changedLineContext.functionContext.startLine
+    );
+  }
+
+  return false;
 }
 
 function sameUnsafeSite(left: UnsafeSiteContext, right: UnsafeSiteContext): boolean {
   return left.kind === right.kind && left.startLine === right.startLine && left.endLine === right.endLine;
 }
 
-function assessNearChangedContext(context: FindingDiffContext): NonNullable<FindingDiffContext["contextAssessment"]> {
-  if (context.sameUnsafeSiteAsNearestChange === true || context.sameFunctionAsNearestChange === true) {
-    return "same_function_or_unsafe_site";
-  }
-
-  if (context.sameUnsafeSiteAsNearestChange === false || context.sameFunctionAsNearestChange === false) {
-    return "different_function_or_unsafe_site";
-  }
-
-  return "unknown";
+function isContextRelation(relation: FindingDiffContext["relation"]): boolean {
+  return (
+    relation === "same_unsafe_site_context" ||
+    relation === "same_function_context" ||
+    relation === "nearby_legacy_context" ||
+    relation === "unrelated_nearby"
+  );
 }
 
-function nearChangedContextNote(
+function assessDiffContext(context: FindingDiffContext): NonNullable<FindingDiffContext["contextAssessment"]> {
+  switch (context.relation) {
+    case "same_unsafe_site_context":
+      return "same_unsafe_site";
+    case "same_function_context":
+      return "same_function";
+    case "nearby_legacy_context":
+      return "nearby_legacy";
+    case "unrelated_nearby":
+      return "unrelated_nearby";
+    case "introduced_by_diff":
+      return "introduced";
+    case "pre_existing_in_changed_file":
+      return "pre_existing";
+  }
+}
+
+function diffContextNote(
   assessment: NonNullable<FindingDiffContext["contextAssessment"]>
 ): string {
   switch (assessment) {
-    case "same_function_or_unsafe_site":
-      return "near changed code in the same function or unsafe site; not necessarily introduced";
-    case "different_function_or_unsafe_site":
-      return "near changed code in a different function or unsafe site; shown as non-blocking context";
+    case "introduced":
+      return "finding starts on an added line";
+    case "same_unsafe_site":
+      return "same unsafe site as an added line; relevant context, not necessarily introduced";
+    case "same_function":
+      return "same function as an added line, outside the same unsafe site; manual context";
+    case "nearby_legacy":
+      return "near changed lines but in a different function or unsafe site; legacy context";
+    case "unrelated_nearby":
+      return "line-near changed code without confirmed function or unsafe-site relation";
+    case "pre_existing":
+      return "pre-existing finding in a changed file";
     case "unknown":
-      return "near changed code, not necessarily introduced; function/unsafe-site match could not be determined";
+      return "context relationship could not be determined";
   }
 }
 
@@ -1458,9 +1633,35 @@ function nearestLine(line: number, changedLines: readonly number[]): number | un
 function countRelations(findings: readonly DiffAwareFinding[]): DiffReviewDetails["relationCounts"] {
   return {
     introduced_by_diff: findings.filter((item) => item.diffContext.relation === "introduced_by_diff").length,
-    near_changed_lines: findings.filter((item) => item.diffContext.relation === "near_changed_lines").length,
+    same_unsafe_site_context: findings.filter((item) => item.diffContext.relation === "same_unsafe_site_context").length,
+    same_function_context: findings.filter((item) => item.diffContext.relation === "same_function_context").length,
+    nearby_legacy_context: findings.filter((item) => item.diffContext.relation === "nearby_legacy_context").length,
+    unrelated_nearby: findings.filter((item) => item.diffContext.relation === "unrelated_nearby").length,
     pre_existing_in_changed_file: findings.filter((item) => item.diffContext.relation === "pre_existing_in_changed_file").length
   };
+}
+
+function includedDiffRelations(
+  includePreExisting: boolean,
+  reportMode: DiffReportMode
+): FindingDiffContext["relation"][] {
+  const relations: FindingDiffContext["relation"][] = [
+    "introduced_by_diff",
+    "same_unsafe_site_context",
+    "same_function_context"
+  ];
+
+  if (reportMode === "full") {
+    relations.push("nearby_legacy_context", "unrelated_nearby");
+  } else if (includePreExisting) {
+    relations.push("nearby_legacy_context");
+  }
+
+  if (includePreExisting) {
+    relations.push("pre_existing_in_changed_file");
+  }
+
+  return relations;
 }
 
 function countHiddenPreExistingFindings(
@@ -1481,7 +1682,7 @@ function countHiddenNearChangedFindings(
   const visibleIds = new Set(visibleFindings.map((item) => item.finding.id));
 
   return allFindings.filter(
-    (item) => item.diffContext.relation === "near_changed_lines" && !visibleIds.has(item.finding.id)
+    (item) => isContextRelation(item.diffContext.relation) && !visibleIds.has(item.finding.id)
   ).length;
 }
 

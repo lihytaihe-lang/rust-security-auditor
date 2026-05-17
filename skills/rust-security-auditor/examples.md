@@ -15,8 +15,8 @@ Expected behavior:
 - Call `rust_review_current_diff`.
 - Use the current local Rust project directory as `projectPath`.
 - For shareable Markdown, use `pathMode: "relative"` and the default `reportMode: "compact"`.
-- Review findings marked `introduced_by_diff` or `near_changed_lines`.
-- Explain that `near_changed_lines` is nearby context, not necessarily introduced by the current diff.
+- Review findings marked `introduced_by_diff`, `same_unsafe_site_context`, or relevant `same_function_context`.
+- Explain that `nearby_legacy_context` and `unrelated_nearby` are hidden from compact reports by default because they are legacy context, not proof that the current diff introduced the finding.
 - Mention hidden `pre_existing_in_changed_file` counts when present, and offer `includePreExisting: true` only if the user wants historical risks in changed files.
 - Prioritize `critical`, `high`, and `medium` findings.
 - Use `reviewDecision.status` as the commit recommendation.
@@ -177,7 +177,9 @@ Expected behavior:
 - Call `rust_review_current_diff`.
 - Treat `critical` and `high` findings marked `introduced_by_diff` as commit blockers when confidence is not low.
 - Treat `medium` findings marked `introduced_by_diff` as context-dependent.
-- Treat `near_changed_lines` findings as nearby context, not proof that the diff introduced them. If the tool marks a nearby finding as a different function/unsafe site, keep it non-blocking unless project policy says otherwise.
+- Treat `same_unsafe_site_context` findings as relevant context that can need attention, but should not hard-block by default.
+- Treat `same_function_context` medium/high findings as manual review when confidence is medium/high.
+- Treat `nearby_legacy_context` and `unrelated_nearby` as non-blocking legacy context unless project policy or `includePreExisting: true` says otherwise.
 - Treat low-confidence findings as manual-review / accepted-risk items, not confirmed vulnerabilities.
 - Treat low/info findings as non-blocking notes unless policy requires more.
 - Keep the output scoped to security, not style.

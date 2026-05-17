@@ -204,24 +204,29 @@ The Skill documentation lives in:
 Diff findings are classified as:
 
 - `introduced_by_diff`: the finding starts on an added line.
-- `near_changed_lines`: the finding is near an added line, using the default 3-line window. This is a context reminder, not proof that the current diff introduced the finding.
+- `same_unsafe_site_context`: the finding is pre-existing context in the same unsafe block/site as an added line.
+- `same_function_context`: the finding is pre-existing context in the same function as an added line, but not the same unsafe site.
+- `nearby_legacy_context`: the finding is line-near an added line, but lightweight context puts it in a different function or unsafe site.
+- `unrelated_nearby`: the finding is line-near an added line, but no function or unsafe-site tie was confirmed.
 - `pre_existing_in_changed_file`: the finding is in a changed file but outside the changed-line window.
 
-By default, current diff review returns only `introduced_by_diff` and filtered `near_changed_lines`. Near-changed findings are shown only for medium-or-higher severity with medium/high confidence. If lightweight function or unsafe-site context shows the nearby finding belongs to a different function/site, it is downgraded to a non-blocking note. Set `includePreExisting: true` to show historical findings in changed files.
+By default, compact current diff review shows `introduced_by_diff`, `same_unsafe_site_context`, and medium-or-higher `same_function_context` findings with medium/high confidence. It hides `nearby_legacy_context`, `unrelated_nearby`, and low/info context findings so different-function legacy unsafe code does not look like a new blocker. Use `reportMode: "full"` to inspect the hidden legacy nearby context, and set `includePreExisting: true` only when you also want historical findings in changed files.
 
 Diff review report options:
 
 - `pathMode`: defaults to `relative`. Use `relative` for PR comments or shared reports so Markdown does not leak local absolute paths. JSON still keeps the resolved `projectPath`.
-- `reportMode`: defaults to `compact`. Compact mode is intended for Codex and PR comments; use `full` when you need changed-file lists, non-blocking notes, accepted/suppressed risk details, and full evidence blocks.
+- `reportMode`: defaults to `compact`. Compact mode is intended for Codex and PR comments; use `full` when you need changed-file lists, legacy nearby context, accepted/suppressed risk details, and full evidence blocks.
 - `nearChangedLineWindow`: defaults to `3`; reduce it to `1` or `2` when nearby pre-existing findings are too noisy, or increase it only when surrounding invariants matter.
 
 When multiple findings point at the same unsafe site, Markdown uses a grouped view. For example, a generic `RSA-UNSAFE-BLOCK` and a specific `RSA-UNSAFE-TRANSMUTE` on the same unsafe block are displayed under one unsafe site. This is a UX grouping only; the JSON `findings` array remains unchanged and each rule still represents its own review signal.
 
 `rust_review_current_diff` also returns a `reviewDecision`:
 
-- `block`: introduced critical/high findings with non-low confidence, or nearby high-confidence critical/high findings that remain in the same lightweight function/unsafe-site context.
-- `needs_attention`: medium findings, nearby findings, low-confidence findings, expired suppressions, or invalid suppressions need human review.
+- `block`: introduced critical/high findings with non-low confidence.
+- `needs_attention`: introduced medium findings, directly relevant same unsafe-site/function context, low-confidence introduced findings, expired suppressions, or invalid suppressions need human review.
 - `pass`: no blocking or manual-review findings were reported.
+
+`reviewDecision` is primarily driven by `introduced_by_diff`. Same unsafe-site high findings can require attention but do not hard-block by default. Same-function medium/high findings enter manual review. `nearby_legacy_context` and `unrelated_nearby` do not affect `safeToCommit` unless `includePreExisting: true` is requested.
 
 Low-confidence findings are review targets, not confirmed vulnerabilities.
 
