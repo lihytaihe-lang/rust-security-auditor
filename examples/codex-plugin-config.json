@@ -28,9 +28,10 @@
         "review current diff",
         "check this Rust project before commit"
       ],
-      "recommendedUsage": "Use before commit or PR to review security findings in Git diff affected files.",
+      "recommendedUsage": "Use before commit or PR to review security findings introduced by or near Git diff changed lines.",
       "defaultArguments": {
         "projectPath": "/absolute/path/to/rust/project",
+        "includePreExisting": false,
         "outputFormat": "json"
       }
     },

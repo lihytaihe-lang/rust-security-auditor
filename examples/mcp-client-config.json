@@ -43,11 +43,13 @@
     },
     {
       "name": "rust_review_current_diff",
-      "whenToUse": "Before commit or PR to review findings in Git diff affected files.",
+      "whenToUse": "Before commit or PR to review findings introduced by or near Git diff changed lines.",
       "arguments": {
         "projectPath": "/absolute/path/to/rust/project",
         "baseRef": "main",
         "headRef": "HEAD",
+        "staged": false,
+        "includePreExisting": false,
         "outputFormat": "json"
       }
     }
@@ -66,8 +68,8 @@
       "check": "Use a Cargo project or workspace directory containing at least one Cargo.toml."
     },
     {
-      "symptom": "rust_review_current_diff returns no diff affected files.",
-      "check": "Ensure projectPath is inside a Git work tree and that there are unstaged, staged, untracked, or explicit base/head changes."
+      "symptom": "rust_review_current_diff returns no changed files.",
+      "check": "Ensure projectPath is inside a Git work tree and that there are unstaged working-tree changes, staged changes with staged=true, or explicit base/head changes."
     },
     {
       "symptom": "The server starts from a client but tools are not visible.",

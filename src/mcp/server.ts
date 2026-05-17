@@ -100,7 +100,7 @@ export function createRustSecurityAuditorMcpServer(): McpServer {
     {
       title: "Review current Rust diff before commit",
       description:
-        "Use before commit or before opening a PR to review the current Rust changes. Reads git diff affected files, scans the local Cargo project or workspace, and returns findings whose files are touched by the diff. This is file-level diff review, not semantic changed-line analysis.",
+        "Use before commit or before opening a PR to review the current Rust changes. Parses git diff hunks, scans only changed files in the local Cargo project or workspace, and marks findings as introduced by the diff, near changed lines, or pre-existing in changed files.",
       annotations: readOnlyAnnotations,
       inputSchema: {
         projectPath: z
@@ -115,6 +115,14 @@ export function createRustSecurityAuditorMcpServer(): McpServer {
           .string()
           .optional()
           .describe("Optional Git head ref for explicit diff review, for example HEAD or a feature branch."),
+        staged: z
+          .boolean()
+          .optional()
+          .describe("When true, review git diff --cached instead of the unstaged working tree diff."),
+        includePreExisting: z
+          .boolean()
+          .optional()
+          .describe("When true, include findings in changed files that are not close to added lines."),
         outputFormat: outputFormatSchema
           .optional()
           .describe("Omit or set to json for structured JSON; set to markdown to also include reportMarkdown text for display.")

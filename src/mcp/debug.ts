@@ -60,7 +60,7 @@ Tools:
   rust_audit_project [--includeSuppressed true]
   rust_audit_unsafe [--includeDocumentedUnsafe false]
   rust_audit_dependencies
-  rust_review_current_diff [--baseRef <ref>] [--headRef <ref>]
+  rust_review_current_diff [--baseRef <ref>] [--headRef <ref>] [--staged true] [--includePreExisting true]
 `);
 }
 

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFile, cp, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
@@ -125,28 +125,101 @@ describe("MCP audit tools", () => {
     assert.equal(output.findings.some((finding) => finding.ruleId.startsWith("RSA-UNSAFE-")), false);
   });
 
-  it("rust_review_current_diff returns findings for diff-affected files", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "rust-security-auditor-mcp-"));
-    const repoPath = join(tempRoot, "repo");
+  it("rust_review_current_diff classifies introduced, nearby, and pre-existing findings", async () => {
+    const { tempRoot, repoPath } = await createDiffReviewRepo();
 
     try {
-      await cp(vulnerableFixturePath, repoPath, { recursive: true });
-      await runShellCommandOrThrow("git", ["init"], { cwd: repoPath });
-      await runShellCommandOrThrow("git", ["config", "user.email", "tester@example.com"], { cwd: repoPath });
-      await runShellCommandOrThrow("git", ["config", "user.name", "Rust Security Auditor Test"], { cwd: repoPath });
-      await runShellCommandOrThrow("git", ["add", "."], { cwd: repoPath });
-      await runShellCommandOrThrow("git", ["commit", "-m", "initial fixture"], { cwd: repoPath });
-      await appendFile(join(repoPath, "src/lib.rs"), "\n// touch unsafe review file\n", "utf8");
+      await writeFile(join(repoPath, "src/lib.rs"), changedLineAwareLibSource(), "utf8");
 
       const output = await rustReviewCurrentDiff({
-        projectPath: repoPath
+        projectPath: repoPath,
+        outputFormat: "markdown"
       });
 
       assert.equal(output.error, undefined);
       assert.deepEqual(output.diffAffectedFiles, ["src/lib.rs"]);
-      assert.ok(output.findings.length > 0);
-      assert.ok(output.findings.every((finding) => finding.file === "src/lib.rs"));
-      assert.equal(output.findings.some((finding) => finding.file === "Cargo.toml"), false);
+      assert.ok(output.diff?.files[0]?.hunks.some((hunk) => hunk.addedLines.length > 0));
+      assert.equal(output.diffReview?.mode, "working_tree");
+      assert.equal(output.diffReview?.includePreExisting, false);
+      assert.ok((output.diffReview?.relationCounts.introduced_by_diff ?? 0) >= 2);
+      assert.ok((output.diffReview?.relationCounts.near_changed_lines ?? 0) >= 2);
+      assert.ok((output.diffReview?.relationCounts.pre_existing_in_changed_file ?? 0) >= 2);
+      assert.ok((output.diffReview?.hiddenPreExistingCount ?? 0) >= 2);
+      assert.ok(output.enrichedFindings?.some((item) => item.diffContext.relation === "introduced_by_diff"));
+      assert.ok(output.enrichedFindings?.some((item) => item.diffContext.relation === "near_changed_lines"));
+      assert.equal(
+        output.enrichedFindings?.some((item) => item.diffContext.relation === "pre_existing_in_changed_file"),
+        false
+      );
+      assert.equal(output.findings.some((finding) => finding.evidence.join("\n").includes("legacy_far")), false);
+      assert.match(output.reportMarkdown ?? "", /## Introduced by this diff/);
+      assert.match(output.reportMarkdown ?? "", /## Near changed lines/);
+      assert.match(output.reportMarkdown ?? "", /Hidden pre-existing findings/);
+      assert.match(output.reportMarkdown ?? "", /Conclusion: Needs attention/);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rust_review_current_diff can include pre-existing findings in changed files", async () => {
+    const { tempRoot, repoPath } = await createDiffReviewRepo();
+
+    try {
+      await writeFile(join(repoPath, "src/lib.rs"), changedLineAwareLibSource(), "utf8");
+
+      const output = await rustReviewCurrentDiff({
+        projectPath: repoPath,
+        includePreExisting: true
+      });
+
+      assert.equal(output.error, undefined);
+      assert.equal(output.diffReview?.includePreExisting, true);
+      assert.equal(output.diffReview?.hiddenPreExistingCount, 0);
+      assert.ok(output.enrichedFindings?.some((item) => item.diffContext.relation === "pre_existing_in_changed_file"));
+      assert.ok(output.findings.some((finding) => finding.evidence.join("\n").includes("legacy_far")));
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rust_review_current_diff supports staged diffs", async () => {
+    const { tempRoot, repoPath } = await createDiffReviewRepo();
+
+    try {
+      await writeFile(join(repoPath, "src/lib.rs"), changedLineAwareLibSource(), "utf8");
+      await runShellCommandOrThrow("git", ["add", "src/lib.rs"], { cwd: repoPath });
+
+      const output = await rustReviewCurrentDiff({
+        projectPath: repoPath,
+        staged: true
+      });
+
+      assert.equal(output.error, undefined);
+      assert.equal(output.diffReview?.mode, "staged");
+      assert.ok(output.enrichedFindings?.some((item) => item.diffContext.relation === "introduced_by_diff"));
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rust_review_current_diff supports baseRef/headRef diffs", async () => {
+    const { tempRoot, repoPath } = await createDiffReviewRepo();
+
+    try {
+      await writeFile(join(repoPath, "src/lib.rs"), changedLineAwareLibSource(), "utf8");
+      await runShellCommandOrThrow("git", ["add", "src/lib.rs"], { cwd: repoPath });
+      await runShellCommandOrThrow("git", ["commit", "-m", "introduce unsafe diff"], { cwd: repoPath });
+
+      const output = await rustReviewCurrentDiff({
+        projectPath: repoPath,
+        baseRef: "HEAD~1",
+        headRef: "HEAD"
+      });
+
+      assert.equal(output.error, undefined);
+      assert.equal(output.diffReview?.mode, "range");
+      assert.deepEqual(output.diffAffectedFiles, ["src/lib.rs"]);
+      assert.ok(output.enrichedFindings?.some((item) => item.diffContext.relation === "introduced_by_diff"));
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
@@ -182,7 +255,7 @@ describe("MCP audit tools", () => {
     }
   });
 
-  it("returns a readable warning when git diff is unavailable", async () => {
+  it("returns a clear error when current diff review runs outside a git repo", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "rust-security-auditor-no-git-"));
     const projectPath = join(tempRoot, "repo");
 
@@ -193,15 +266,90 @@ describe("MCP audit tools", () => {
         projectPath
       });
 
-      assert.equal(output.error, undefined);
-      assert.deepEqual(output.diffAffectedFiles, []);
+      assert.equal(output.error?.code, "PROJECT_PATH_NOT_GIT_REPO");
       assert.equal(output.findings.length, 0);
-      assert.match(output.warnings?.join("\n") ?? "", /git diff is unavailable/);
+      assert.match(output.error?.message ?? "", /Git work tree/);
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
   });
 });
+
+async function createDiffReviewRepo(): Promise<{ tempRoot: string; repoPath: string }> {
+  const tempRoot = await mkdtemp(join(tmpdir(), "rust-security-auditor-diff-"));
+  const repoPath = join(tempRoot, "repo");
+
+  await mkdir(join(repoPath, "src"), { recursive: true });
+  await writeFile(
+    join(repoPath, "Cargo.toml"),
+    `[package]
+name = "diff_review_fixture"
+version = "0.1.0"
+edition = "2021"
+`,
+    "utf8"
+  );
+  await writeFile(join(repoPath, "src/lib.rs"), initialDiffReviewLibSource(), "utf8");
+  await runShellCommandOrThrow("git", ["init"], { cwd: repoPath });
+  await runShellCommandOrThrow("git", ["config", "user.email", "tester@example.com"], { cwd: repoPath });
+  await runShellCommandOrThrow("git", ["config", "user.name", "Rust Security Auditor Test"], { cwd: repoPath });
+  await runShellCommandOrThrow("git", ["add", "."], { cwd: repoPath });
+  await runShellCommandOrThrow("git", ["commit", "-m", "initial fixture"], { cwd: repoPath });
+
+  return { tempRoot, repoPath };
+}
+
+function initialDiffReviewLibSource(): string {
+  return `${[
+    "pub fn stable() -> u8 {",
+    "    1",
+    "}",
+    "",
+    "pub unsafe fn legacy_near(ptr: *const u8) -> u8 {",
+    "    unsafe { *ptr }",
+    "}",
+    "",
+    "pub fn padding_01() -> u8 { 1 }",
+    "pub fn padding_02() -> u8 { 2 }",
+    "pub fn padding_03() -> u8 { 3 }",
+    "pub fn padding_04() -> u8 { 4 }",
+    "pub fn padding_05() -> u8 { 5 }",
+    "pub fn padding_06() -> u8 { 6 }",
+    "pub fn padding_07() -> u8 { 7 }",
+    "pub fn padding_08() -> u8 { 8 }",
+    "pub fn padding_09() -> u8 { 9 }",
+    "pub fn padding_10() -> u8 { 10 }",
+    "",
+    "pub unsafe fn legacy_far(ptr: *const u8) -> u8 {",
+    "    unsafe { *ptr }",
+    "}",
+    "",
+    "pub fn tail_01() -> u8 { 1 }",
+    "pub fn tail_02() -> u8 { 2 }",
+    "pub fn tail_03() -> u8 { 3 }",
+    "pub fn tail_04() -> u8 { 4 }",
+    "pub fn tail_05() -> u8 { 5 }",
+    "pub fn tail_06() -> u8 { 6 }",
+    "pub fn tail_07() -> u8 { 7 }",
+    "pub fn tail_08() -> u8 { 8 }",
+    "pub fn tail_09() -> u8 { 9 }",
+    "pub fn tail_10() -> u8 { 10 }",
+    "pub fn tail_11() -> u8 { 11 }",
+    "pub fn tail_12() -> u8 { 12 }"
+  ].join("\n")}\n`;
+}
+
+function changedLineAwareLibSource(): string {
+  const lines = initialDiffReviewLibSource().trimEnd().split("\n");
+  lines.splice(7, 0, "// touched near legacy unsafe");
+  lines.push(
+    "",
+    "pub unsafe fn introduced(ptr: *const u8) -> u8 {",
+    "    unsafe { *ptr }",
+    "}"
+  );
+  return `${lines.join("\n")}\n`;
+}
 
 async function withMcpClient(callback: (client: Client) => Promise<void>): Promise<void> {
   const server = createRustSecurityAuditorMcpServer();

@@ -5,24 +5,24 @@
     "tool": "rust_review_current_diff",
     "projectPath": "<temp-git-fixture>/repo",
     "summary": {
-      "findingCount": 15,
+      "findingCount": 2,
       "suppressedCount": 0,
       "severityCounts": {
         "info": 0,
         "low": 0,
-        "medium": 15,
+        "medium": 2,
         "high": 0,
         "critical": 0
       },
       "categoryCounts": {
-        "unsafe": 12,
-        "ffi": 1,
+        "unsafe": 2,
+        "ffi": 0,
         "dependency": 0,
         "supply_chain": 0,
         "command_execution": 0,
         "filesystem": 0,
         "input_boundary": 0,
-        "concurrency": 2,
+        "concurrency": 0,
         "secret": 0,
         "panic_dos": 0,
         "manual_review": 0
@@ -31,296 +31,152 @@
     },
     "findings": [
       {
-        "id": "RSA-UNSAFE-FN-5D5D0CE5",
+        "id": "RSA-UNSAFE-FN-EXAMPLE",
         "ruleId": "RSA-UNSAFE-FN",
         "title": "Unsafe function requires a caller safety contract",
         "severity": "medium",
         "confidence": "high",
         "category": "unsafe",
         "file": "src/lib.rs",
+        "startLine": 42,
         "evidence": [
-          "Line 1: pub unsafe fn read_byte(ptr: *const u8) -> u8 {"
+          "Line 42: pub unsafe fn introduced(ptr: *const u8) -> u8 {"
         ],
         "whyItMatters": "An unsafe function shifts memory-safety obligations to callers, so the required preconditions must be explicit and testable.",
         "riskScenario": "A caller can pass an invalid pointer, alias mutable state, or violate lifetime requirements and trigger undefined behavior.",
         "suggestedFix": "Add a precise Safety contract, validate what can be checked at runtime, and keep the unsafe body as small as possible.",
-        "startLine": 1,
         "suggestedTests": [
           "Cover rejected invalid inputs and valid boundary cases for the documented Safety contract."
         ]
       },
       {
-        "id": "RSA-UNSAFE-BLOCK-91AA22BF",
+        "id": "RSA-UNSAFE-BLOCK-EXAMPLE",
         "ruleId": "RSA-UNSAFE-BLOCK",
         "title": "Unsafe block needs local invariant review",
         "severity": "medium",
         "confidence": "high",
         "category": "unsafe",
         "file": "src/lib.rs",
+        "startLine": 43,
         "evidence": [
-          "Line 2: unsafe { *ptr }"
+          "Line 43: unsafe { *ptr }"
         ],
         "whyItMatters": "Unsafe blocks can dereference raw pointers, call unsafe functions, or rely on invariants outside Rust's borrow checker.",
         "riskScenario": "A future change weakens the invariant around the unsafe operation and introduces undefined behavior without a compiler error.",
         "suggestedFix": "Keep the block minimal, state the local invariant next to the operation, and wrap it in a safe API when possible.",
-        "startLine": 2,
         "suggestedTests": [
           "Add boundary tests that would fail if the unsafe preconditions are violated."
-        ]
-      },
-      {
-        "id": "RSA-UNSAFE-IMPL-SEND-E2F38AC1",
-        "ruleId": "RSA-UNSAFE-IMPL-SEND",
-        "title": "Unsafe Send implementation requires thread-safety review",
-        "severity": "medium",
-        "confidence": "high",
-        "category": "concurrency",
-        "file": "src/lib.rs",
-        "evidence": [
-          "Line 7: unsafe impl Send for Shared {}"
-        ],
-        "whyItMatters": "An unsafe Send implementation asserts cross-thread transfer invariants that the compiler cannot verify.",
-        "riskScenario": "If the type contains unsynchronized raw pointers or ownership-sensitive state, moving it across threads can cause data races or memory corruption.",
-        "suggestedFix": "Document the Send invariant, restrict the implementation to types that uphold it, and add cross-thread ownership tests.",
-        "startLine": 7,
-        "suggestedTests": [
-          "Move the type across threads with representative state and drop-order cases."
-        ]
-      },
-      {
-        "id": "RSA-UNSAFE-IMPL-SYNC-F29D8FBE",
-        "ruleId": "RSA-UNSAFE-IMPL-SYNC",
-        "title": "Unsafe Sync implementation requires shared-access review",
-        "severity": "medium",
-        "confidence": "high",
-        "category": "concurrency",
-        "file": "src/lib.rs",
-        "evidence": [
-          "Line 8: unsafe impl Sync for Shared {}"
-        ],
-        "whyItMatters": "An unsafe Sync implementation asserts shared-reference thread-safety invariants that the compiler cannot verify.",
-        "riskScenario": "If interior mutability or raw pointers are not synchronized correctly, shared references can allow data races or memory corruption.",
-        "suggestedFix": "Document the Sync invariant, protect shared mutable state with synchronization, and test concurrent access paths.",
-        "startLine": 8,
-        "suggestedTests": [
-          "Exercise shared references across threads with concurrent reads, writes, and drop paths."
-        ]
-      },
-      {
-        "id": "RSA-FFI-EXTERN-C-8F06F22A",
-        "ruleId": "RSA-FFI-EXTERN-C",
-        "title": "C ABI boundary requires FFI safety review",
-        "severity": "medium",
-        "confidence": "high",
-        "category": "ffi",
-        "file": "src/lib.rs",
-        "evidence": [
-          "Line 10: pub extern \"C\" fn exported(ptr: *const u8) -> usize {"
-        ],
-        "whyItMatters": "An extern C boundary crosses Rust's type and panic-safety guarantees and often handles raw pointers or foreign ownership.",
-        "riskScenario": "A foreign caller passes invalid pointers or Rust unwinds through the C ABI, causing undefined behavior or process aborts.",
-        "suggestedFix": "Use FFI-safe types, validate nullable pointers before dereference, define ownership rules, and prevent unwinding across the boundary.",
-        "startLine": 10,
-        "suggestedTests": [
-          "Test null, invalid-length, and panic-path behavior at the ABI boundary."
-        ]
-      },
-      {
-        "id": "RSA-UNSAFE-BLOCK-4064E557",
-        "ruleId": "RSA-UNSAFE-BLOCK",
-        "title": "Unsafe block needs local invariant review",
-        "severity": "medium",
-        "confidence": "high",
-        "category": "unsafe",
-        "file": "src/lib.rs",
-        "evidence": [
-          "Line 11: unsafe { std::slice::from_raw_parts(ptr, 4).len() }"
-        ],
-        "whyItMatters": "Unsafe blocks can dereference raw pointers, call unsafe functions, or rely on invariants outside Rust's borrow checker.",
-        "riskScenario": "A future change weakens the invariant around the unsafe operation and introduces undefined behavior without a compiler error.",
-        "suggestedFix": "Keep the block minimal, state the local invariant next to the operation, and wrap it in a safe API when possible.",
-        "startLine": 11,
-        "suggestedTests": [
-          "Add boundary tests that would fail if the unsafe preconditions are violated."
-        ]
-      },
-      {
-        "id": "RSA-UNSAFE-FROM-RAW-PARTS-FB4B9917",
-        "ruleId": "RSA-UNSAFE-FROM-RAW-PARTS",
-        "title": "from_raw_parts requires pointer and length review",
-        "severity": "medium",
-        "confidence": "high",
-        "category": "unsafe",
-        "file": "src/lib.rs",
-        "evidence": [
-          "Line 11: unsafe { std::slice::from_raw_parts(ptr, 4).len() }"
-        ],
-        "whyItMatters": "from_raw_parts relies on pointer validity, alignment, lifetime, and length invariants that Rust cannot verify.",
-        "riskScenario": "An invalid length or stale pointer creates out-of-bounds reads or references to freed memory.",
-        "suggestedFix": "Validate pointer nullability, alignment, lifetime ownership, and length before constructing slices from raw parts.",
-        "startLine": 11,
-        "suggestedTests": [
-          "Test null, zero-length, maximum-length, and invalid-length boundary cases."
-        ]
-      },
-      {
-        "id": "RSA-UNSAFE-BLOCK-68848946",
-        "ruleId": "RSA-UNSAFE-BLOCK",
-        "title": "Unsafe block needs local invariant review",
-        "severity": "medium",
-        "confidence": "high",
-        "category": "unsafe",
-        "file": "src/lib.rs",
-        "evidence": [
-          "Line 15: unsafe { std::mem::transmute(value) }"
-        ],
-        "whyItMatters": "Unsafe blocks can dereference raw pointers, call unsafe functions, or rely on invariants outside Rust's borrow checker.",
-        "riskScenario": "A future change weakens the invariant around the unsafe operation and introduces undefined behavior without a compiler error.",
-        "suggestedFix": "Keep the block minimal, state the local invariant next to the operation, and wrap it in a safe API when possible.",
-        "startLine": 15,
-        "suggestedTests": [
-          "Add boundary tests that would fail if the unsafe preconditions are violated."
-        ]
-      },
-      {
-        "id": "RSA-UNSAFE-TRANSMUTE-AC3C61F3",
-        "ruleId": "RSA-UNSAFE-TRANSMUTE",
-        "title": "transmute requires layout and validity review",
-        "severity": "medium",
-        "confidence": "high",
-        "category": "unsafe",
-        "file": "src/lib.rs",
-        "evidence": [
-          "Line 15: unsafe { std::mem::transmute(value) }"
-        ],
-        "whyItMatters": "transmute depends on layout, size, alignment, and value validity assumptions that Rust cannot check.",
-        "riskScenario": "A value is reinterpreted as a type with stricter validity rules, creating invalid values or undefined behavior.",
-        "suggestedFix": "Prefer explicit conversion APIs, bytemuck-style checked casts, or a small wrapper that verifies layout and validity assumptions.",
-        "startLine": 15,
-        "suggestedTests": [
-          "Test representative bit patterns and layout assumptions for the conversion boundary."
-        ]
-      },
-      {
-        "id": "RSA-UNSAFE-MAYBEUNINIT-5CB12A51",
-        "ruleId": "RSA-UNSAFE-MAYBEUNINIT",
-        "title": "MaybeUninit requires initialization invariant review",
-        "severity": "medium",
-        "confidence": "high",
-        "category": "unsafe",
-        "file": "src/lib.rs",
-        "evidence": [
-          "Line 19: let value = std::mem::MaybeUninit::<u8>::uninit();"
-        ],
-        "whyItMatters": "MaybeUninit bypasses Rust's normal initialization checks and must never expose uninitialized bytes as initialized values.",
-        "riskScenario": "An error path or partial write leaves memory uninitialized but later treats it as a valid value.",
-        "suggestedFix": "Track initialization state explicitly, prefer safe collection builders, and isolate assume_init behind checked control flow.",
-        "startLine": 19,
-        "suggestedTests": [
-          "Cover partial initialization, early return, and panic paths."
-        ]
-      },
-      {
-        "id": "RSA-UNSAFE-BLOCK-4414E415",
-        "ruleId": "RSA-UNSAFE-BLOCK",
-        "title": "Unsafe block needs local invariant review",
-        "severity": "medium",
-        "confidence": "high",
-        "category": "unsafe",
-        "file": "src/lib.rs",
-        "evidence": [
-          "Line 20: unsafe { value.assume_init() }"
-        ],
-        "whyItMatters": "Unsafe blocks can dereference raw pointers, call unsafe functions, or rely on invariants outside Rust's borrow checker.",
-        "riskScenario": "A future change weakens the invariant around the unsafe operation and introduces undefined behavior without a compiler error.",
-        "suggestedFix": "Keep the block minimal, state the local invariant next to the operation, and wrap it in a safe API when possible.",
-        "startLine": 20,
-        "suggestedTests": [
-          "Add boundary tests that would fail if the unsafe preconditions are violated."
-        ]
-      },
-      {
-        "id": "RSA-UNSAFE-BLOCK-9BE0C979",
-        "ruleId": "RSA-UNSAFE-BLOCK",
-        "title": "Unsafe block needs local invariant review",
-        "severity": "medium",
-        "confidence": "high",
-        "category": "unsafe",
-        "file": "src/lib.rs",
-        "evidence": [
-          "Line 24: unsafe { values.set_len(values.capacity()) }"
-        ],
-        "whyItMatters": "Unsafe blocks can dereference raw pointers, call unsafe functions, or rely on invariants outside Rust's borrow checker.",
-        "riskScenario": "A future change weakens the invariant around the unsafe operation and introduces undefined behavior without a compiler error.",
-        "suggestedFix": "Keep the block minimal, state the local invariant next to the operation, and wrap it in a safe API when possible.",
-        "startLine": 24,
-        "suggestedTests": [
-          "Add boundary tests that would fail if the unsafe preconditions are violated."
-        ]
-      },
-      {
-        "id": "RSA-UNSAFE-SET-LEN-5DA5691E",
-        "ruleId": "RSA-UNSAFE-SET-LEN",
-        "title": "set_len requires initialized capacity review",
-        "severity": "medium",
-        "confidence": "high",
-        "category": "unsafe",
-        "file": "src/lib.rs",
-        "evidence": [
-          "Line 24: unsafe { values.set_len(values.capacity()) }"
-        ],
-        "whyItMatters": "set_len can expose uninitialized memory or set a length larger than allocated capacity.",
-        "riskScenario": "A vector length is increased before every element is initialized, allowing reads of uninitialized memory.",
-        "suggestedFix": "Only call set_len after all elements are initialized and the requested length is within capacity.",
-        "startLine": 24,
-        "suggestedTests": [
-          "Cover short writes, error returns, and maximum-capacity paths."
-        ]
-      },
-      {
-        "id": "RSA-UNSAFE-FN-DA9DB871",
-        "ruleId": "RSA-UNSAFE-FN",
-        "title": "Unsafe function requires a caller safety contract",
-        "severity": "medium",
-        "confidence": "high",
-        "category": "unsafe",
-        "file": "src/lib.rs",
-        "evidence": [
-          "Line 27: pub unsafe fn take(ptr: *mut u8) -> Box<u8> {"
-        ],
-        "whyItMatters": "An unsafe function shifts memory-safety obligations to callers, so the required preconditions must be explicit and testable.",
-        "riskScenario": "A caller can pass an invalid pointer, alias mutable state, or violate lifetime requirements and trigger undefined behavior.",
-        "suggestedFix": "Add a precise Safety contract, validate what can be checked at runtime, and keep the unsafe body as small as possible.",
-        "startLine": 27,
-        "suggestedTests": [
-          "Cover rejected invalid inputs and valid boundary cases for the documented Safety contract."
-        ]
-      },
-      {
-        "id": "RSA-UNSAFE-BOX-FROM-RAW-B86263A9",
-        "ruleId": "RSA-UNSAFE-BOX-FROM-RAW",
-        "title": "Box::from_raw requires ownership review",
-        "severity": "medium",
-        "confidence": "high",
-        "category": "unsafe",
-        "file": "src/lib.rs",
-        "evidence": [
-          "Line 28: Box::from_raw(ptr)"
-        ],
-        "whyItMatters": "Box::from_raw assumes the pointer was allocated by Box and that ownership is transferred exactly once.",
-        "riskScenario": "A pointer is converted into a Box twice or was allocated by a foreign allocator, causing double free or allocator mismatch.",
-        "suggestedFix": "Prove single ownership transfer, pair the allocation and deallocation strategy, and avoid repeated from_raw conversions.",
-        "startLine": 28,
-        "suggestedTests": [
-          "Test ownership transfer and drop paths around the raw pointer boundary."
         ]
       }
     ],
     "warnings": [
-      "rust_review_current_diff currently scans findings in diff-affected files; it is not full semantic diff analysis."
+      "rust_review_current_diff is changed-line aware, but it is still heuristic scanner output rather than full data-flow or taint analysis."
     ],
     "diffAffectedFiles": [
       "src/lib.rs"
+    ],
+    "diff": {
+      "files": [
+        {
+          "filePath": "src/lib.rs",
+          "oldPath": "src/lib.rs",
+          "newPath": "src/lib.rs",
+          "hunks": [
+            {
+              "oldStart": 38,
+              "oldLines": 3,
+              "newStart": 38,
+              "newLines": 7,
+              "addedLines": [
+                42,
+                43,
+                44
+              ],
+              "removedLines": [],
+              "contextLines": [
+                38,
+                39,
+                40,
+                41
+              ],
+              "contextRange": [
+                38,
+                44
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "diffReview": {
+      "mode": "working_tree",
+      "changedLineWindow": 5,
+      "includePreExisting": false,
+      "includedRelations": [
+        "introduced_by_diff",
+        "near_changed_lines"
+      ],
+      "relationCounts": {
+        "introduced_by_diff": 2,
+        "near_changed_lines": 0,
+        "pre_existing_in_changed_file": 2
+      },
+      "hiddenPreExistingCount": 2,
+      "conclusion": "Needs attention"
+    },
+    "enrichedFindings": [
+      {
+        "finding": {
+          "id": "RSA-UNSAFE-FN-EXAMPLE",
+          "ruleId": "RSA-UNSAFE-FN",
+          "title": "Unsafe function requires a caller safety contract",
+          "severity": "medium",
+          "confidence": "high",
+          "category": "unsafe",
+          "file": "src/lib.rs",
+          "startLine": 42,
+          "evidence": [
+            "Line 42: pub unsafe fn introduced(ptr: *const u8) -> u8 {"
+          ],
+          "whyItMatters": "An unsafe function shifts memory-safety obligations to callers, so the required preconditions must be explicit and testable.",
+          "riskScenario": "A caller can pass an invalid pointer, alias mutable state, or violate lifetime requirements and trigger undefined behavior.",
+          "suggestedFix": "Add a precise Safety contract, validate what can be checked at runtime, and keep the unsafe body as small as possible.",
+          "suggestedTests": [
+            "Cover rejected invalid inputs and valid boundary cases for the documented Safety contract."
+          ]
+        },
+        "diffContext": {
+          "relation": "introduced_by_diff",
+          "nearestChangedLine": 42,
+          "distance": 0
+        }
+      },
+      {
+        "finding": {
+          "id": "RSA-UNSAFE-BLOCK-EXAMPLE",
+          "ruleId": "RSA-UNSAFE-BLOCK",
+          "title": "Unsafe block needs local invariant review",
+          "severity": "medium",
+          "confidence": "high",
+          "category": "unsafe",
+          "file": "src/lib.rs",
+          "startLine": 43,
+          "evidence": [
+            "Line 43: unsafe { *ptr }"
+          ],
+          "whyItMatters": "Unsafe blocks can dereference raw pointers, call unsafe functions, or rely on invariants outside Rust's borrow checker.",
+          "riskScenario": "A future change weakens the invariant around the unsafe operation and introduces undefined behavior without a compiler error.",
+          "suggestedFix": "Keep the block minimal, state the local invariant next to the operation, and wrap it in a safe API when possible.",
+          "suggestedTests": [
+            "Add boundary tests that would fail if the unsafe preconditions are violated."
+          ]
+        },
+        "diffContext": {
+          "relation": "introduced_by_diff",
+          "nearestChangedLine": 43,
+          "distance": 0
+        }
+      }
     ]
   }
 }

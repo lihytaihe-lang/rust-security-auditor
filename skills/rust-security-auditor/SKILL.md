@@ -15,8 +15,8 @@ Map these user entries to MCP tools:
 
 | User entry | MCP tool | Default intent |
 | --- | --- | --- |
-| `review current diff` | `rust_review_current_diff` | Pre-commit or PR review of findings in diff-affected files. |
-| `check this Rust project before commit` | `rust_review_current_diff` | Pre-commit review of current working tree, staged, and untracked changes. |
+| `review current diff` | `rust_review_current_diff` | Pre-commit or PR review of findings introduced by or near changed lines. |
+| `check this Rust project before commit` | `rust_review_current_diff` | Pre-commit review of the selected Git diff; use `staged: true` for staged changes. |
 | `audit unsafe` | `rust_audit_unsafe` | Unsafe, FFI, raw pointer, initialization, and unsafe Send/Sync review. |
 | `audit dependencies` | `rust_audit_dependencies` | Cargo and build-time supply-chain review. |
 | `audit project` | `rust_audit_project` | Full local Rust project security health check. |
@@ -27,7 +27,17 @@ Always pass the current local Rust project directory as `projectPath` unless the
 
 ## Tool Selection
 
-Call `rust_review_current_diff` when the user asks for current diff, before commit, before PR, changed files, or branch review. Explain that this is file-level diff review: it scans findings in files touched by the diff, not semantic changed-line analysis.
+Call `rust_review_current_diff` when the user asks for current diff, before commit, before PR, changed files, staged changes, or branch review. It parses git diff hunks and marks findings as `introduced_by_diff`, `near_changed_lines`, or `pre_existing_in_changed_file`.
+
+Defaults for `rust_review_current_diff`:
+
+- With no refs and no `staged`, review `git diff` for unstaged working tree changes.
+- With `staged: true`, review `git diff --cached`.
+- With both `baseRef` and `headRef`, review `git diff baseRef..headRef`.
+- By default, present only `introduced_by_diff` and `near_changed_lines`.
+- Use `includePreExisting: true` only when the user asks to see historical risks in changed files.
+
+Explain that changed-line awareness improves PR focus, but the result is still heuristic scanner output, not full data-flow, control-flow, or taint analysis.
 
 Call `rust_audit_unsafe` when the user asks about unsafe Rust, FFI, raw pointers, `unsafe fn`, `unsafe impl Send`, `unsafe impl Sync`, `MaybeUninit`, `transmute`, `from_raw_parts`, `set_len`, or `Box::from_raw`. Focus on safety invariants, ownership, lifetimes, initialization, aliasing, unwind behavior, and thread-safety contracts.
 
@@ -63,8 +73,10 @@ For every finding, ground the explanation in the returned `ruleId`, `file`, line
 
 Before commit:
 
-- Block by default on `critical` or `high` findings in `rust_review_current_diff`.
-- Treat `medium` findings as "needs developer confirmation".
+- Block by default on `critical` or `high` findings marked `introduced_by_diff`.
+- Treat `medium` findings marked `introduced_by_diff` as "needs developer confirmation".
+- Treat `near_changed_lines` findings as review targets because the diff may affect nearby invariants.
+- Hide or summarize `pre_existing_in_changed_file` findings unless `includePreExisting: true` was requested.
 - Allow `low` and `info` findings to be tracked unless they indicate policy-sensitive code.
 
 Before release:

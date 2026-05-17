@@ -14,9 +14,10 @@ Expected behavior:
 
 - Call `rust_review_current_diff`.
 - Use the current local Rust project directory as `projectPath`.
-- Review only findings in Git diff affected files.
+- Review findings marked `introduced_by_diff` or `near_changed_lines`.
+- Mention hidden `pre_existing_in_changed_file` counts when present, and offer `includePreExisting: true` only if the user wants historical risks in changed files.
 - Prioritize `critical`, `high`, and `medium` findings.
-- Explain that current diff review is file-level, not semantic changed-line analysis.
+- Explain that current diff review is changed-line aware but still not full data-flow or taint analysis.
 - End with a commit recommendation.
 
 Expected Codex response shape:
@@ -25,7 +26,7 @@ Expected Codex response shape:
 Overall risk: high_risk
 
 Blocking issues:
-- RSA-BUILD-COMMAND in build.rs:4 is high confidence/high severity because the build script spawns a shell command.
+- RSA-BUILD-COMMAND in build.rs:4 is high confidence/high severity and is marked introduced_by_diff because the changed line adds a build-script shell command.
 
 Recommended fixes:
 - Replace shell invocation with a constrained build helper or document and validate the exact command path and arguments.
@@ -36,6 +37,13 @@ Manual review needed:
 Commit recommendation:
 - Do not commit yet. Fix or explicitly accept the high-severity build-script risk first.
 ```
+
+Tool-output cues to use:
+
+- `enrichedFindings[].diffContext.relation`
+- `nearestChangedLine` and `distance`
+- `diffReview.conclusion`
+- `diffReview.hiddenPreExistingCount`
 
 ## Example 2: Unsafe-Specific Audit
 
@@ -152,8 +160,9 @@ User:
 Expected behavior:
 
 - Call `rust_review_current_diff`.
-- Treat `critical` and `high` findings as commit blockers.
-- Treat `medium` findings as context-dependent.
+- Treat `critical` and `high` findings marked `introduced_by_diff` as commit blockers.
+- Treat `medium` findings marked `introduced_by_diff` as context-dependent.
+- Treat `near_changed_lines` findings as invariant review targets.
 - Keep the output scoped to security, not style.
 
 Expected Codex response shape:

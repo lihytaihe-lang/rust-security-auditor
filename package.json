@@ -10,6 +10,7 @@
     "./mcp": "./dist/src/mcp/index.js",
     "./reports": "./dist/src/reports/index.js",
     "./scanners": "./dist/src/scanners/index.js",
+    "./git": "./dist/src/git/index.js",
     "./utils/shell": "./dist/src/utils/shell.js"
   },
   "scripts": {

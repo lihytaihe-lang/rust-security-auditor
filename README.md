@@ -2,14 +2,15 @@
 
 Rust Security Auditor is a local TypeScript kernel and MCP server for low-noise Rust security review in Codex and other MCP clients. It is intentionally scoped to Rust security findings: unsafe/FFI, dependency and supply-chain risk, command execution, filesystem/path handling, input boundaries, secrets, panic/DoS, and manual-review items.
 
-This repository is currently at Phase 4. It provides a local scanner kernel, a stdio MCP server, and a Codex Skill / Plugin usage layer for natural `@Rust Security Auditor` calls inside a local Codex project context. It does not provide a ChatGPT App, web UI, SaaS upload flow, uploaded code package scanning, or generic code review.
+This repository is currently at Phase 5. It provides a local scanner kernel, a changed-line-aware stdio MCP server, and a Codex Skill / Plugin usage layer for natural `@Rust Security Auditor` calls inside a local Codex project context. It does not provide a ChatGPT App, web UI, SaaS upload flow, uploaded code package scanning, or generic code review.
 
-## Phase 4 Contents
+## Phase 5 Contents
 
 - TypeScript project configuration
 - Stable Finding schema and validation helpers
 - Markdown and JSON report renderers
 - Shell command wrapper for future `git`, `cargo`, and `rg` calls
+- Unified git diff parser for file paths, hunk headers, added lines, removed lines, and context ranges
 - Scanner interface types
 - `ProjectScanner` for Cargo manifests, lockfiles, workspace manifests, build scripts, and Rust source discovery
 - `UnsafeScanner` for deterministic unsafe and FFI review targets
@@ -20,6 +21,7 @@ This repository is currently at Phase 4. It provides a local scanner kernel, a s
 - Fixtures for vulnerable, safe, documented unsafe, dependency-risk, and suppressed projects
 - Local MCP server in `src/mcp/` using the official Model Context Protocol TypeScript SDK
 - MCP tools for full project audit, unsafe/FFI audit, dependency/supply-chain audit, and current diff review
+- Changed-line-aware `rust_review_current_diff` output with `introduced_by_diff`, `near_changed_lines`, and `pre_existing_in_changed_file` metadata
 - Local MCP debug caller for invoking tools without an MCP client
 - Codex/MCP client stdio configuration documentation
 - Example MCP client config and sanitized MCP validation outputs under `examples/`
@@ -33,7 +35,8 @@ This repository is currently at Phase 4. It provides a local scanner kernel, a s
 - Scanner kernel ready.
 - MCP server ready.
 - Codex usage layer ready.
-- ChatGPT App not implemented yet.
+- Changed-line-aware current diff review ready.
+- ChatGPT App, SaaS, uploaded code packages, and Deep Audit / release-gate workflows are not implemented here.
 
 ## Install
 
@@ -116,7 +119,7 @@ The server uses `@modelcontextprotocol/sdk` and registers these tools:
 - `rust_audit_project`: use before a release or for a full-project Rust security health check.
 - `rust_audit_unsafe`: use for specialized unsafe / FFI review, including unsafe blocks, raw-memory primitives, extern boundaries, and unsafe Send/Sync impls.
 - `rust_audit_dependencies`: use for Cargo dependency and supply-chain review.
-- `rust_review_current_diff`: use before commit or PR to review current Git diff affected files.
+- `rust_review_current_diff`: use before commit or PR to review findings introduced by or near current Git diff hunks.
 
 All tools return structured content with this shape:
 
@@ -194,13 +197,62 @@ When `outputFormat` is `"json"` or omitted, the MCP text content is JSON and `st
   "projectPath": "/path/to/rust/project",
   "baseRef": "main",
   "headRef": "HEAD",
+  "staged": false,
+  "includePreExisting": false,
   "outputFormat": "json"
 }
 ```
 
-If `baseRef` and `headRef` are omitted, `rust_review_current_diff` reviews the working tree diff. It also includes untracked files reported by `git ls-files --others --exclude-standard`.
+If `staged` is `true`, `rust_review_current_diff` reviews `git diff --cached`. If both `baseRef` and `headRef` are provided, it reviews `git diff baseRef..headRef`. Otherwise it reviews the unstaged working tree diff from `git diff`.
 
-Current diff review is intentionally file-level: it scans the project and filters findings to diff-affected files. It is not full semantic diff analysis and does not yet reason about changed line ranges or data/control-flow impact.
+Current diff review parses unified diff hunks, scans only files touched by the selected diff, and enriches displayed findings with:
+
+- `introduced_by_diff`: `finding.startLine` is one of the added lines in the diff.
+- `near_changed_lines`: the finding is not on an added line, but is within the default 5-line window around an added line.
+- `pre_existing_in_changed_file`: the finding is in a changed file but outside the changed-line window.
+
+By default, `rust_review_current_diff` returns only `introduced_by_diff` and `near_changed_lines` findings. Set `includePreExisting: true` to include historical findings from changed files. This is still heuristic scanner output; it is not full data-flow, control-flow, or taint analysis.
+
+For `rust_review_current_diff`, structured output keeps the compatible top-level `findings` array and adds diff-specific fields:
+
+```json
+{
+  "diffAffectedFiles": ["src/lib.rs"],
+  "diff": {
+    "files": [
+      {
+        "filePath": "src/lib.rs",
+        "hunks": [
+          {
+            "oldStart": 10,
+            "oldLines": 6,
+            "newStart": 10,
+            "newLines": 8,
+            "addedLines": [12, 13],
+            "removedLines": [11],
+            "contextLines": [10, 14],
+            "contextRange": [10, 17]
+          }
+        ]
+      }
+    ]
+  },
+  "enrichedFindings": [
+    {
+      "finding": {
+        "ruleId": "RSA-UNSAFE-BLOCK",
+        "file": "src/lib.rs",
+        "startLine": 12
+      },
+      "diffContext": {
+        "relation": "introduced_by_diff",
+        "nearestChangedLine": 12,
+        "distance": 0
+      }
+    }
+  ]
+}
+```
 
 ### Local Tool Debugging
 
@@ -211,6 +263,8 @@ npm run mcp:call -- rust_audit_project --projectPath test/fixtures/vulnerable-ru
 npm run mcp:call -- rust_audit_unsafe --projectPath test/fixtures/vulnerable-rust-project
 npm run mcp:call -- rust_audit_dependencies --projectPath test/fixtures/dependency-risk
 npm run mcp:call -- rust_review_current_diff --projectPath /path/to/rust/project
+npm run mcp:call -- rust_review_current_diff --projectPath /path/to/rust/project --staged true
+npm run mcp:call -- rust_review_current_diff --projectPath /path/to/rust/project --includePreExisting true
 ```
 
 These commands print the structured tool output as JSON.
@@ -231,6 +285,7 @@ The Skill maps natural `@Rust Security Auditor ...` requests to these tools and 
 - `src/scanners/dependencyScanner.ts`: Cargo/build.rs dependency risk clue scanner
 - `src/scanners/rustProjectScanner.ts`: combined Rust project scan entrypoint
 - `src/scanners/rules.ts`: scanner rule metadata
+- `src/git/diffParser.ts`: unified git diff parser for hunks and changed line numbers
 - `src/utils/shell.ts`: shell command execution wrapper with timeout and bounded output
 - `src/scanners/types.ts`: scanner interfaces
 - `src/mcp/server.ts`: local stdio MCP server
@@ -399,4 +454,4 @@ This is a static heuristic scanner. It improves review focus, but it is not comp
 
 The MCP server validates that `projectPath` exists and is a local directory before scanning. It resolves and normalizes the project path, scans within that directory, filters git diff file paths to safe relative paths, and reports clear structured errors instead of crashing for invalid input.
 
-`rust_review_current_diff` is useful today for changed-file triage, but it is not a semantic patch analyzer. Future work can add line-range filtering, richer git hunk mapping, and deeper changed-code reasoning.
+`rust_review_current_diff` is useful today for changed-line-aware PR triage, but it is not a semantic patch analyzer. It does not build a Rust AST, perform taint analysis, prove unsafe invariants, or reason about data/control-flow impact across functions. Findings outside added lines can still matter, especially when nearby code changes alter an invariant, so treat `near_changed_lines` as review targets rather than confirmed vulnerabilities.
