@@ -22,6 +22,7 @@ Expected behavior:
 - Use `reviewDecision.status` as the commit recommendation.
 - Include `suggestedFixPrompt` values for blocking or manual-review findings when useful.
 - Explain that current diff review is changed-line aware but still not full data-flow or taint analysis.
+- Explain that confidence is pattern-detection confidence, not exploitability confidence.
 - End with a commit recommendation.
 
 Expected Codex response shape:
@@ -31,7 +32,7 @@ Decision: block
 Safe to commit: no
 
 Blocking issues:
-- RSA-BUILD-COMMAND in build.rs:4 is high confidence/high severity and is marked introduced_by_diff because the changed line adds a build-script shell command.
+- RSA-BUILD-COMMAND in build.rs:4 is high severity with high pattern-detection confidence and is marked introduced_by_diff because the changed line adds a build-script shell command.
 
 Recommended fixes:
 - Replace shell invocation with a constrained build helper or document and validate the exact command path and arguments.
@@ -76,6 +77,7 @@ Expected behavior:
 - Use the compact unsafe-site/function grouping instead of repeating every primitive as a long standalone block.
 - Explain the unsafe invariant each finding points at.
 - Distinguish documented unsafe from undocumented unsafe when the tool evidence supports it.
+- Treat unsafe findings as review cues for invariants, not confirmed vulnerabilities.
 - Output manual-review questions for invariants Codex cannot prove.
 
 Expected Codex response shape:
@@ -92,7 +94,7 @@ Recommended fixes:
 - Add tests or debug assertions for reachable preconditions where possible.
 
 Pre-release guidance:
-- Treat medium-confidence unsafe findings as manual checklist items before release.
+- Treat medium pattern-detection confidence unsafe findings as manual checklist items before release.
 ```
 
 ## Example 3: Dependency And Supply-Chain Audit
@@ -109,6 +111,7 @@ Expected behavior:
 - Use compact Markdown by default when the user wants a report; it should read like a supply-chain checklist.
 - Focus on `Cargo.toml`, `Cargo.lock`, `build.rs`, `git` dependencies, `path` dependencies, proc macros, and `[build-dependencies]`.
 - Highlight build-time execution and dependency source trust boundaries.
+- Group workspace-local path dependencies as one low-priority trust-boundary signal when compact output reports them that way.
 - Tell the user to run `cargo audit` separately for vulnerability database checks.
 - Avoid generic dependency update advice unless tied to a returned finding.
 
@@ -124,6 +127,7 @@ Manual review needed:
 - RSA-DEP-GIT in Cargo.toml uses a git dependency. Confirm the repository is trusted and the revision is pinned.
 - RSA-DEP-PROC-MACRO flags compile-time code execution. Confirm the proc-macro crate is reviewed and expected.
 - RSA-BUILD-SCRIPT flags build.rs. Confirm build-time behavior and inputs.
+- Workspace-local path dependencies: 3 items. Confirm they remain inside the reviewed workspace and are covered by CI.
 
 Recommended fixes:
 - Run cargo audit separately for known vulnerable crate advisories.
@@ -147,6 +151,7 @@ Expected behavior:
 - Produce a pre-release summary, risk level, blocking findings, recommended fixes, and manual-review items.
 - Do not expand every finding in the first response; use the compact top findings, grouped counts, and high-priority areas.
 - State that the scan is heuristic and local, not a proof of security.
+- State that confidence is pattern-detection confidence, not exploitability confidence.
 - Include suppression guidance only for intentionally accepted findings.
 
 Expected Codex response shape:
@@ -162,7 +167,7 @@ Recommended fixes:
 
 Manual review needed:
 - Review unsafe and FFI findings for documented invariants.
-- Review Cargo git/path dependencies and build dependencies for supply-chain trust.
+- Review Cargo git/path dependency trust-boundary signals and build dependencies for supply-chain trust.
 
 Suggested next audits:
 - Run rust_audit_unsafe for grouped unsafe invariant review.
@@ -187,10 +192,10 @@ User:
 Expected behavior:
 
 - Call `rust_review_current_diff`.
-- Treat `critical` and `high` findings marked `introduced_by_diff` as commit blockers when confidence is not low.
+- Treat `critical` and `high` findings marked `introduced_by_diff` as commit blockers when pattern-detection confidence is not low.
 - Treat `medium` findings marked `introduced_by_diff` as context-dependent.
 - Treat `same_unsafe_site_context` findings as relevant context that can need attention, but should not hard-block by default.
-- Treat `same_function_context` medium/high findings as manual review when confidence is medium/high.
+- Treat `same_function_context` medium/high findings as manual review when pattern-detection confidence is medium/high.
 - Treat `nearby_legacy_context` and `unrelated_nearby` as non-blocking legacy context unless project policy or `includePreExisting: true` says otherwise.
 - Treat low-confidence findings as manual-review / accepted-risk items, not confirmed vulnerabilities.
 - Treat low/info findings as non-blocking notes unless policy requires more.
@@ -228,7 +233,7 @@ Expected behavior:
 - If `expiredSuppressionCount` is non-zero, explain that those findings are shown again and need review.
 - If `invalidSuppressionCount` is non-zero, explain that the directive is ignored until fixed.
 - Do not add suppression comments automatically.
-- Do not suggest suppression as the primary action for high-confidence blockers.
+- Do not suggest suppression as the primary action for high-confidence blockers, and clarify that confidence is pattern-detection confidence.
 
 Expected Codex response shape:
 
@@ -261,7 +266,7 @@ Expected behavior:
 
 - Call `rust_audit_project`.
 - Treat high and critical findings as pre-release blockers.
-- List medium and low-confidence findings as manual checklist items.
+- List medium severity and low pattern-detection confidence findings as manual checklist items.
 - Include the overall risk level and pre-release recommendation.
 
 Expected Codex response shape:

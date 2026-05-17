@@ -94,7 +94,7 @@ export function inferReviewDecision(
     return {
       status: "block",
       reason:
-        "The reviewed diff introduced high or critical security findings with enough confidence to block before commit.",
+        "The reviewed diff introduced high or critical security review signals with medium/high pattern-detection confidence.",
       blockingFindingIds,
       needsManualReviewFindingIds,
       safeToCommit: false
@@ -116,7 +116,7 @@ export function inferReviewDecision(
     status: "pass",
     reason:
       findings.length === 0
-        ? "No introduced or directly related security findings were reported for the reviewed diff."
+        ? "No introduced or directly related security review signals were reported for the reviewed diff."
         : "Only non-blocking legacy or low-risk context was reported for the reviewed diff.",
     blockingFindingIds,
     needsManualReviewFindingIds,

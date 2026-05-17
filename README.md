@@ -220,13 +220,15 @@ For all non-diff audit tools:
 - `pathMode` defaults to `relative`, so Markdown uses `.` for scope and relative file locations by default. JSON still keeps the resolved `projectPath`.
 - `compact` keeps the JSON `findings` array complete while hiding most repeated per-finding detail from Markdown.
 - `full` is the better mode for complete audit notes, handoff archives, or suppression review.
+- Confidence means pattern-detection confidence, not exploitability confidence. A high-confidence item is a strong review signal that the configured pattern was found, not a claim that a vulnerability is confirmed or exploitable.
+- Workspace-local path dependencies are grouped in compact Markdown as low-priority trust-boundary signals. JSON and `reportMode: "full"` still preserve each `RSA-DEP-PATH` finding with location and evidence.
 - Non-diff audits are heuristic static review. They are not release gates, formal safety proofs, or substitutes for manual unsafe and supply-chain review.
 
 Compact report shapes:
 
-- `rust_audit_project`: overall risk, severity/category/ruleId counts, top 5 findings, high-priority areas, next audit suggestions, and a few Codex-ready prompts.
+- `rust_audit_project`: overall risk, severity/category/ruleId counts, top 5 findings, grouped review signals, low-priority workspace path dependency groups, high-priority areas, next audit suggestions, and a few Codex-ready prompts.
 - `rust_audit_unsafe`: unsafe review checklist with counts for unsafe blocks, unsafe fn, unsafe Send/Sync impls, FFI, raw-memory primitives, grouped unsafe sites/functions, required manual invariant review, and reusable Codex prompts.
-- `rust_audit_dependencies`: supply-chain checklist with git/path dependencies, build scripts, proc macros, build dependencies, lockfile git sources, high-priority review items, and dependency trust prompts.
+- `rust_audit_dependencies`: supply-chain checklist with git/path dependencies, build scripts, proc macros, build dependencies, lockfile git sources, high-priority review items, workspace-local path dependency grouping, and dependency trust prompts.
 
 ### Current Diff Review
 
@@ -241,7 +243,7 @@ Diff findings are classified as:
 - `unrelated_nearby`: the finding is line-near an added line, but no function or unsafe-site tie was confirmed.
 - `pre_existing_in_changed_file`: the finding is in a changed file but outside the changed-line window.
 
-By default, compact current diff review shows `introduced_by_diff`, `same_unsafe_site_context`, and medium-or-higher `same_function_context` findings with medium/high confidence. It hides `nearby_legacy_context`, `unrelated_nearby`, and low/info context findings so different-function legacy unsafe code does not look like a new blocker. Use `reportMode: "full"` to inspect the hidden legacy nearby context, and set `includePreExisting: true` only when you also want historical findings in changed files.
+By default, compact current diff review shows `introduced_by_diff`, `same_unsafe_site_context`, and medium-or-higher `same_function_context` findings with medium/high pattern-detection confidence. It hides `nearby_legacy_context`, `unrelated_nearby`, and low/info context findings so different-function legacy unsafe code does not look like a new blocker. Use `reportMode: "full"` to inspect the hidden legacy nearby context, and set `includePreExisting: true` only when you also want historical findings in changed files.
 
 Diff review report options:
 
@@ -253,13 +255,13 @@ When multiple findings point at the same unsafe site, Markdown uses a grouped vi
 
 `rust_review_current_diff` also returns a `reviewDecision`:
 
-- `block`: introduced critical/high findings with non-low confidence.
-- `needs_attention`: introduced medium findings, directly relevant same unsafe-site/function context, low-confidence introduced findings, expired suppressions, or invalid suppressions need human review.
+- `block`: introduced critical/high review signals with non-low pattern-detection confidence.
+- `needs_attention`: introduced medium review signals, directly relevant same unsafe-site/function context, low-confidence introduced findings, expired suppressions, or invalid suppressions need human review.
 - `pass`: no blocking or manual-review findings were reported.
 
 `reviewDecision` is primarily driven by `introduced_by_diff`. Same unsafe-site high findings can require attention but do not hard-block by default. Same-function medium/high findings enter manual review. `nearby_legacy_context` and `unrelated_nearby` do not affect `safeToCommit` unless `includePreExisting: true` is requested.
 
-Low-confidence findings are review targets, not confirmed vulnerabilities.
+Low-confidence findings are review targets, not confirmed vulnerabilities. The same distinction applies to high confidence: it describes how strongly the scanner matched its pattern, not exploitability.
 
 ## Accepted Risk Suppressions
 
@@ -332,7 +334,7 @@ Dependency and build:
 - `RSA-BUILD-SCRIPT`
 - `RSA-BUILD-COMMAND`
 
-Findings are deduplicated by `file + startLine + ruleId` and sorted by severity, confidence, file, then line. Every emitted finding includes `ruleId`, `file`, severity, confidence, category, evidence, why it matters, risk scenario, and suggested fix.
+Findings are deduplicated by `file + startLine + ruleId` and sorted by severity, pattern-detection confidence, file, then line. Every emitted finding includes `ruleId`, `file`, severity, confidence, category, evidence, why it matters, risk scenario, and suggested fix.
 
 ## Development
 
@@ -350,4 +352,4 @@ Build output goes to `dist/` and is intentionally ignored by Git.
 
 Rust Security Auditor is a local, heuristic static scanner. It does not upload repositories, package source bundles, or scanned code to an external service. The MCP server validates that `projectPath` exists and is a local directory, resolves it, scans within that directory, filters Git diff paths to safe relative paths, and returns structured errors for invalid input.
 
-The current preview does not build a full Rust AST, execute semantic data-flow or taint analysis, prove unsafe invariants, or provide a formal security guarantee. Treat findings as focused review targets with concrete evidence, especially around unsafe invariants, FFI boundaries, build-time execution, and supply-chain trust boundaries.
+The current preview does not build a full Rust AST, execute semantic data-flow or taint analysis, prove unsafe invariants, or provide a formal security guarantee. Treat findings as focused review signals with concrete evidence, especially around unsafe invariants, FFI boundaries, build-time execution, and supply-chain trust boundaries.

@@ -31,6 +31,8 @@ Always pass the current local Rust project directory as `projectPath` unless the
 
 For `rust_audit_project`, `rust_audit_unsafe`, and `rust_audit_dependencies`, use `reportMode: "compact"` by default. Compact non-diff reports keep JSON findings complete while making Markdown suitable for Codex and developer handoff. Use `reportMode: "full"` only when the user asks for complete evidence, suggested fixes/tests, suppression details, or an archive-style audit report.
 
+Confidence values mean pattern-detection confidence, not exploitability confidence. A high-confidence finding means the configured pattern was strongly detected in the local code, not that the item is a confirmed or exploitable vulnerability.
+
 ## Tool Selection
 
 Call `rust_review_current_diff` when the user asks for current diff, before commit, before PR, changed files, staged changes, or branch review. It parses git diff hunks and marks findings as `introduced_by_diff`, `same_unsafe_site_context`, `same_function_context`, `nearby_legacy_context`, `unrelated_nearby`, or `pre_existing_in_changed_file`.
@@ -43,7 +45,7 @@ Defaults for `rust_review_current_diff`:
 - Use `pathMode: "relative"` by default when generating Markdown, especially for reports that may be pasted into PRs or shared outside the local machine.
 - Use `reportMode: "compact"` by default for Codex / PR comments; use `reportMode: "full"` only when the user asks for full evidence/details.
 - Use `nearChangedLineWindow: 3` by default. Lower it to `1` or `2` when near-line noise is too high.
-- By default, present `introduced_by_diff`, `same_unsafe_site_context`, and medium-or-higher `same_function_context` with medium/high confidence.
+- By default, present `introduced_by_diff`, `same_unsafe_site_context`, and medium-or-higher `same_function_context` with medium/high pattern-detection confidence.
 - Treat `nearby_legacy_context` and `unrelated_nearby` as hidden legacy context in compact reports; use `reportMode: "full"` when the user asks to inspect it separately.
 - Use `includePreExisting: true` only when the user asks to see historical risks in changed files.
 - Use `reviewDecision.status` as the primary commit/PR recommendation: `block`, `needs_attention`, or `pass`.
@@ -60,11 +62,11 @@ In compact Markdown, treat `rust_audit_unsafe` as an unsafe review checklist: su
 
 Call `rust_audit_dependencies` when the user asks about dependencies, supply chain, Cargo changes, `Cargo.toml`, `Cargo.lock`, `build.rs`, `git` dependencies, `path` dependencies, proc macros, or build dependencies. Focus on build-time code execution, dependency source trust, revision pinning, and local path trust boundaries.
 
-In compact Markdown, treat `rust_audit_dependencies` as a supply-chain checklist: lead with build.rs command execution, git dependencies, lockfile git sources, proc macros, and build dependencies. Remind the user to run `cargo audit` separately because this tool does not query vulnerability databases.
+In compact Markdown, treat `rust_audit_dependencies` as a supply-chain checklist: lead with build.rs command execution, git dependencies, lockfile git sources, proc macros, and build dependencies. If multiple path dependencies are workspace-local, present them as one low-priority trust-boundary signal such as "Workspace-local path dependencies: N items"; JSON and full Markdown still keep every `RSA-DEP-PATH` finding. Remind the user to run `cargo audit` separately because this tool does not query vulnerability databases.
 
 Call `rust_audit_project` when the user asks for a full local project scan, project health check, before release, or before publishing. Treat this as the broadest local scan across unsafe/FFI, dependency/supply-chain, build scripts, command execution, filesystem/path handling, input boundaries, secrets, panic/DoS, concurrency, and manual-review categories.
 
-In compact Markdown, treat `rust_audit_project` as a broad project summary, not a 1:1 finding dump: report the risk level, counts, top 5 findings, grouped categories/rule IDs, high-priority areas, and suggested next audits (`rust_audit_unsafe`, `rust_audit_dependencies`, `rust_review_current_diff`, `rust_list_accepted_risks`).
+In compact Markdown, treat `rust_audit_project` as a broad project summary, not a 1:1 finding dump: report the risk level, counts, top 5 findings, grouped categories/rule IDs, low-priority workspace path dependency trust-boundary groups, high-priority areas, and suggested next audits (`rust_audit_unsafe`, `rust_audit_dependencies`, `rust_review_current_diff`, `rust_list_accepted_risks`).
 
 Call `rust_list_accepted_risks` when the user asks to list accepted risks, show suppressed risks, check expired suppressions, clean up invalid suppressions, or review the accepted risk inventory before release. This tool only scans Rust source files for `rustsec-auditor` suppression comments; it does not run the full scanner and does not modify source code. Use `includeExpired: true` when the user wants expired suppressions, `includeInvalid: true` when the user wants invalid suppressions, and `outputFormat: "markdown"` when the user asks for the inventory report.
 
@@ -87,7 +89,7 @@ Severity guidance:
 
 Confidence guidance:
 
-- `high`: present strongly, using the tool evidence and suggested fix.
+- `high`: present as a strong pattern-detection match and review signal, using the tool evidence and suggested fix.
 - `medium`: recommend manual confirmation of the code context and invariant.
 - `low`: avoid exaggeration; phrase as a review target or possible risk, not a confirmed vulnerability.
 
@@ -104,10 +106,10 @@ For every finding, ground the explanation in the returned `ruleId`, `file`, line
 
 Before commit:
 
-- Block by default on `critical` or `high` findings marked `introduced_by_diff` when confidence is `high` or `medium`.
+- Block by default on `critical` or `high` findings marked `introduced_by_diff` when pattern-detection confidence is `high` or `medium`.
 - Treat `medium` findings marked `introduced_by_diff` as "needs developer confirmation".
 - Treat `same_unsafe_site_context` high findings as `needs_attention`, not default blockers.
-- Treat `same_function_context` medium/high findings as manual review when confidence is medium/high.
+- Treat `same_function_context` medium/high findings as manual review when pattern-detection confidence is medium/high.
 - Treat `nearby_legacy_context` and `unrelated_nearby` as non-blocking legacy context unless `includePreExisting: true` was explicitly requested.
 - Put low-confidence findings in manual review / accepted-risk flow, not in hard blockers.
 - Treat only low/info findings with non-low confidence as pass-level non-blocking notes.
@@ -141,7 +143,7 @@ Rules for explaining suppression:
 - Recommend owner, ticket, and until when the risk is accepted for more than a one-off false positive.
 - Expired suppressions are shown again and make current diff review at least `needs_attention`.
 - Invalid suppressions are ignored and should be fixed as accepted-risk metadata, not treated as hidden findings.
-- High-confidence blockers should default to `fix_before_commit`, not suppression.
+- High-confidence blockers should default to `fix_before_commit`, not suppression, while still explaining that confidence is pattern-detection confidence.
 
 For accepted-risk inventory output, summarize:
 
@@ -168,6 +170,7 @@ If this risk is intentional, add a rustsec-auditor suppression comment with a cl
 - Do not pretend a complete security audit was performed.
 - Do not claim the tool proves code is safe or memory-safe.
 - Do not ignore `confidence`.
+- Do not present `confidence` as exploitability confidence.
 - Do not treat a low-confidence finding as a confirmed vulnerability.
 - Do not recommend uploading the project to an external service.
 - Do not default to modifying code unless the user explicitly asks for fixes.

@@ -108,3 +108,11 @@ Proceed toward a Hosted MCP Prototype after one small local polish pass:
 - preserve `rust_review_current_diff` as the primary ChatGPT/Codex entry point.
 
 With those adjustments, the core MCP capability looks useful enough to justify a hosted prototype.
+
+## Follow-up polish from dogfood
+
+The v0.1.1 local polish pass addresses the two report UX issues from this dogfood run without changing the Rust downloader project.
+
+- Workspace-local path dependencies are now grouped in compact Markdown as a low-priority trust-boundary signal such as `Workspace-local path dependencies: N items`. JSON findings and `reportMode: "full"` still keep each `RSA-DEP-PATH` item with full location and evidence.
+- High confidence wording now says pattern-detection confidence, not exploitability confidence. Unsafe, dependency, and build.rs items should read as review signals or review cues, not confirmed vulnerabilities.
+- This polish stays local to report UX, wording, grouping, tests, and docs; it does not start ChatGPT App, Hosted MCP, SaaS, upload, Deep Audit, release-gate, broad scanner-rule, or Rust downloader changes.

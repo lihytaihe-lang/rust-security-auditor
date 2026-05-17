@@ -265,6 +265,51 @@ describe("MCP audit tools", () => {
     assert.doesNotMatch(markdown, /#### Evidence/);
   });
 
+  it("rust_audit_dependencies compact report groups workspace-local path dependencies", async () => {
+    const { tempRoot, projectPath } = await createWorkspacePathDependencyProject();
+
+    try {
+      const output = await rustAuditDependencies({
+        projectPath,
+        outputFormat: "markdown",
+        reportMode: "compact"
+      });
+      const markdown = output.reportMarkdown ?? "";
+
+      assert.equal(output.error, undefined);
+      assert.equal(output.findings.filter((finding) => finding.ruleId === "RSA-DEP-PATH").length, 2);
+      assert.match(markdown, /Workspace-local path dependencies: 2 items/);
+      assert.match(markdown, /low-priority trust-boundary signal/);
+      assert.match(markdown, /Confidence: pattern-detection confidence, not exploitability confidence/);
+      assert.doesNotMatch(markdown, /Path dependency needs local trust boundary review/);
+      assert.doesNotMatch(markdown, /^- Low RSA-DEP-PATH/m);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rust_audit_project compact report groups workspace-local path dependencies as low priority", async () => {
+    const { tempRoot, projectPath } = await createWorkspacePathDependencyProject();
+
+    try {
+      const output = await rustAuditProject({
+        projectPath,
+        outputFormat: "markdown",
+        reportMode: "compact"
+      });
+      const markdown = output.reportMarkdown ?? "";
+
+      assert.equal(output.error, undefined);
+      assert.equal(output.findings.filter((finding) => finding.ruleId === "RSA-DEP-PATH").length, 2);
+      assert.match(markdown, /## Grouped Findings/);
+      assert.match(markdown, /Workspace-local path dependencies: 2 items/);
+      assert.match(markdown, /Workspace-local path dependencies: 2 low-priority trust-boundary signals/);
+      assert.doesNotMatch(markdown, /^- RSA-DEP-PATH: 2$/m);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("non-diff reportMode full expands details while compact stays concise", async () => {
     const compact = await rustAuditDependencies({
       projectPath: dependencyRiskFixturePath,
@@ -283,6 +328,29 @@ describe("MCP audit tools", () => {
     assert.match(full.reportMarkdown ?? "", /#### Evidence/);
     assert.match(full.reportMarkdown ?? "", /#### Suggested fix/);
     assert.ok((compact.reportMarkdown ?? "").length < (full.reportMarkdown ?? "").length);
+  });
+
+  it("rust_audit_dependencies full report preserves workspace path dependency details", async () => {
+    const { tempRoot, projectPath } = await createWorkspacePathDependencyProject();
+
+    try {
+      const output = await rustAuditDependencies({
+        projectPath,
+        outputFormat: "markdown",
+        reportMode: "full"
+      });
+      const markdown = output.reportMarkdown ?? "";
+
+      assert.equal(output.error, undefined);
+      assert.equal(output.findings.filter((finding) => finding.ruleId === "RSA-DEP-PATH").length, 2);
+      assert.equal(countOccurrences(markdown, "### RSA-DEP-PATH-"), 2);
+      assert.match(markdown, /core_dep = \{ path = "crates\/core" \}/);
+      assert.match(markdown, /ui_dep = \{ path = "crates\/ui" \}/);
+      assert.match(markdown, /Confidence: High pattern-detection confidence \(not exploitability confidence\)/);
+      assert.doesNotMatch(markdown, /Workspace-local path dependencies: 2 items/);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("rust_list_accepted_risks inventories valid, expired, and invalid suppressions", async () => {
@@ -972,6 +1040,57 @@ describe("MCP audit tools", () => {
   });
 });
 
+async function createWorkspacePathDependencyProject(): Promise<{ tempRoot: string; projectPath: string }> {
+  const tempRoot = await mkdtemp(join(tmpdir(), "rust-security-auditor-workspace-path-"));
+  const projectPath = join(tempRoot, "workspace");
+
+  await mkdir(join(projectPath, "src"), { recursive: true });
+  await mkdir(join(projectPath, "crates/core/src"), { recursive: true });
+  await mkdir(join(projectPath, "crates/ui/src"), { recursive: true });
+  await writeFile(
+    join(projectPath, "Cargo.toml"),
+    `${[
+      "[workspace]",
+      "members = [\"crates/core\", \"crates/ui\"]",
+      "",
+      "[package]",
+      "name = \"workspace_path_fixture\"",
+      "version = \"0.1.0\"",
+      "edition = \"2021\"",
+      "",
+      "[dependencies]",
+      "core_dep = { path = \"crates/core\" }",
+      "ui_dep = { path = \"crates/ui\" }"
+    ].join("\n")}\n`,
+    "utf8"
+  );
+  await writeFile(join(projectPath, "src/lib.rs"), "pub fn root() {}\n", "utf8");
+  await writeFile(
+    join(projectPath, "crates/core/Cargo.toml"),
+    `${[
+      "[package]",
+      "name = \"core_dep\"",
+      "version = \"0.1.0\"",
+      "edition = \"2021\""
+    ].join("\n")}\n`,
+    "utf8"
+  );
+  await writeFile(join(projectPath, "crates/core/src/lib.rs"), "pub fn core() {}\n", "utf8");
+  await writeFile(
+    join(projectPath, "crates/ui/Cargo.toml"),
+    `${[
+      "[package]",
+      "name = \"ui_dep\"",
+      "version = \"0.1.0\"",
+      "edition = \"2021\""
+    ].join("\n")}\n`,
+    "utf8"
+  );
+  await writeFile(join(projectPath, "crates/ui/src/lib.rs"), "pub fn ui() {}\n", "utf8");
+
+  return { tempRoot, projectPath };
+}
+
 async function createDiffReviewRepo(): Promise<{ tempRoot: string; repoPath: string }> {
   const tempRoot = await mkdtemp(join(tmpdir(), "rust-security-auditor-diff-"));
   const repoPath = join(tempRoot, "repo");
@@ -1187,6 +1306,10 @@ function countMarkdownTopFindingBullets(markdown: string): number {
 
 function countMarkdownHeadings(markdown: string, prefix: string): number {
   return markdown.match(new RegExp(`^${escapeRegExp(prefix)} `, "gm"))?.length ?? 0;
+}
+
+function countOccurrences(value: string, needle: string): number {
+  return value.split(needle).length - 1;
 }
 
 async function withMcpClient(callback: (client: Client) => Promise<void>): Promise<void> {

@@ -46,13 +46,12 @@ function defaultReleaseGateRecommendation(findings: readonly Finding[]): string 
 
   switch (summary.result) {
     case "PASS":
-      return "No security findings were reported by the configured checks.";
+      return "No security review signals were reported by the configured checks.";
     case "PASS_WITH_WARNINGS":
       return "Review the warnings, but the current evidence does not block release.";
     case "NEEDS_FIX_BEFORE_RELEASE":
-      return "Fix high or critical security findings before release or merge.";
+      return "Review or fix high or critical security review signals before release or merge.";
     case "MANUAL_SECURITY_REVIEW_REQUIRED":
       return "Complete manual security review for low-confidence or manual-review items before release.";
   }
 }
-

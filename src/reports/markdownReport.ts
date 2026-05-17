@@ -8,6 +8,7 @@ import {
 } from "./schemas.js";
 
 const severityOrder: readonly Severity[] = ["critical", "high", "medium", "low", "info"];
+const confidenceExplanation = "pattern-detection confidence, not exploitability confidence";
 
 export function renderMarkdownReport(input: AuditReportInput): string {
   const findings = validateFindings([...input.findings]);
@@ -25,7 +26,8 @@ export function renderMarkdownReport(input: AuditReportInput): string {
     `- Medium: ${summary.medium}`,
     `- Low: ${summary.low}`,
     `- Info: ${summary.info}`,
-    `- Manual Review: ${summary.manualReview}`
+    `- Manual Review: ${summary.manualReview}`,
+    `- Confidence: ${confidenceExplanation}`
   ];
 
   if (input.scope !== undefined) {
@@ -73,7 +75,7 @@ function formatFinding(finding: Finding): string[] {
     `### ${finding.id}: ${finding.title}`,
     "",
     `- Severity: ${titleCase(finding.severity)}`,
-    `- Confidence: ${titleCase(finding.confidence)}`,
+    `- Confidence: ${titleCase(finding.confidence)} pattern-detection confidence (not exploitability confidence)`,
     `- Category: ${finding.category}`,
     `- Rule: ${finding.ruleId}`,
     `- Location: \`${formatLocation(finding)}\``,
@@ -148,7 +150,7 @@ function defaultReleaseGateRecommendation(result: string): string {
     case "PASS_WITH_WARNINGS":
       return "Review warnings before merge; no current finding blocks release.";
     case "NEEDS_FIX_BEFORE_RELEASE":
-      return "Fix high or critical security findings before release or merge.";
+      return "Review or fix high or critical security review signals before release or merge.";
     case "MANUAL_SECURITY_REVIEW_REQUIRED":
       return "Complete manual security review before release.";
     default:

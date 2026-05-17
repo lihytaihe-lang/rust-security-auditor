@@ -1,5 +1,5 @@
 import { realpath, stat } from "node:fs/promises";
-import { isAbsolute, posix, resolve } from "node:path";
+import { isAbsolute, posix, relative, resolve } from "node:path";
 import { parseUnifiedDiff, type GitDiffFile, type ParsedGitDiff } from "../git/index.js";
 import { renderMarkdownReport, toJsonReport, type AuditReportInput, type Category, categories, type Finding, type Severity, severities } from "../reports/index.js";
 import { DependencyScanner, ProjectScanner, UnsafeScanner, discoverRustProject, listAcceptedRiskInventory, scanRustProject, type RustProject, type RustProjectScanResult } from "../scanners/index.js";
@@ -52,6 +52,7 @@ import {
 const dependencyRulePrefixes = ["RSA-DEP-", "RSA-BUILD-"] as const;
 const unsafeRulePrefixes = ["RSA-UNSAFE-", "RSA-FFI-"] as const;
 const defaultNearChangedLineWindow = 3;
+const confidenceExplanation = "pattern-detection confidence, not exploitability confidence";
 
 export function isMcpToolName(value: string): value is McpToolName {
   return (mcpToolNames as readonly string[]).includes(value);
@@ -501,20 +502,21 @@ function renderCompactProjectAuditMarkdown(input: {
     `- High/medium/low: ${input.summary.severityCounts.high}/${input.summary.severityCounts.medium}/${input.summary.severityCounts.low}`,
     `- Critical/info: ${input.summary.severityCounts.critical}/${input.summary.severityCounts.info}`,
     `- Suppressed findings: ${input.summary.suppressedCount}`,
-    `- Scope: ${formatProjectScope(input.projectPath, input.pathMode)}`
+    `- Scope: ${formatProjectScope(input.projectPath, input.pathMode)}`,
+    `- Confidence: ${confidenceExplanation}`
   ];
 
   appendTopFindings(lines, input.findings, input.projectPath, input.pathMode, 5, 5);
-  appendGroupedFindings(lines, input.findings);
-  appendProjectPriorityAreas(lines, input.summary);
+  appendGroupedFindings(lines, input.findings, input.projectPath);
+  appendProjectPriorityAreas(lines, input.summary, input.findings, input.projectPath);
 
   lines.push(
     "",
     "## Recommended Next Actions",
     "",
-    "- Fix high or critical findings first, especially build-time command execution.",
+    "- Review or fix high/critical review signals first, especially build-time command execution.",
     "- Manually review unsafe and FFI sites for pointer, aliasing, ownership, and unwind invariants.",
-    "- Audit `build.rs` and build-time dependency trust before release handoff.",
+    "- Audit `build.rs` and build-time dependency trust-boundary signals before release handoff.",
     "- Review accepted risks with `rust_list_accepted_risks` when suppressions are present.",
     "- Suggested next audits: `rust_audit_unsafe`, `rust_audit_dependencies`, `rust_review_current_diff`, `rust_list_accepted_risks`."
   );
@@ -533,15 +535,31 @@ function renderCompactProjectAuditMarkdown(input: {
   return formatMarkdown(lines);
 }
 
-function appendProjectPriorityAreas(lines: string[], summary: McpAuditSummary): void {
+function appendProjectPriorityAreas(
+  lines: string[],
+  summary: McpAuditSummary,
+  findings: readonly Finding[],
+  projectPath: string
+): void {
   const unsafeAndFfi = summary.categoryCounts.unsafe + summary.categoryCounts.ffi + summary.categoryCounts.concurrency;
+  const workspaceLocalPathDependencies = splitWorkspaceLocalPathDependencies(findings, projectPath).workspaceLocal.length;
   const supplyChain =
-    summary.categoryCounts.dependency + summary.categoryCounts.supply_chain + summary.categoryCounts.command_execution;
+    summary.categoryCounts.dependency +
+    summary.categoryCounts.supply_chain +
+    summary.categoryCounts.command_execution -
+    workspaceLocalPathDependencies;
 
   lines.push("", "## High-Priority Areas", "");
   lines.push(`- Build scripts / command execution: ${summary.categoryCounts.command_execution}`);
   lines.push(`- Unsafe / FFI / concurrency: ${unsafeAndFfi}`);
-  lines.push(`- Dependencies / supply-chain: ${supplyChain}`);
+  lines.push(`- Dependencies / supply-chain review signals: ${supplyChain}`);
+  if (workspaceLocalPathDependencies > 0) {
+    lines.push(
+      `- Workspace-local path dependencies: ${workspaceLocalPathDependencies} low-priority trust-boundary ${signalWord(
+        workspaceLocalPathDependencies
+      )}`
+    );
+  }
 }
 
 function renderCompactUnsafeAuditMarkdown(input: {
@@ -573,7 +591,8 @@ function renderCompactUnsafeAuditMarkdown(input: {
     `- unsafe impl Send/Sync: ${unsafeImplCount}`,
     `- FFI: ${countRule(input.findings, "RSA-FFI-EXTERN-C")}`,
     `- raw memory primitives: ${rawMemoryPrimitiveCount}`,
-    `- Scope: ${formatProjectScope(input.projectPath, input.pathMode)}`
+    `- Scope: ${formatProjectScope(input.projectPath, input.pathMode)}`,
+    `- Confidence: ${confidenceExplanation}`
   ];
 
   appendUnsafeSitesToReview(lines, {
@@ -634,7 +653,7 @@ function appendUnsafeSitesToReview(
     lines.push(`- Rules: ${formatRuleCounts(group.findings)}`);
     lines.push("- Findings:");
     for (const finding of group.findings) {
-      lines.push(`  - ${conciseFindingLabel(finding)} (${finding.ruleId}, ${finding.severity}/${finding.confidence})`);
+      lines.push(`  - ${conciseFindingLabel(finding)} (${finding.ruleId}, ${formatSeverityConfidenceCue(finding)})`);
     }
     lines.push("");
   }
@@ -730,11 +749,13 @@ function renderCompactDependencyAuditMarkdown(input: {
     `- build dependencies: ${countRule(input.findings, "RSA-DEP-BUILD-DEPENDENCIES")}`,
     `- lockfile git sources: ${countRule(input.findings, "RSA-DEP-LOCK-GIT")}`,
     `- build.rs command execution: ${countRule(input.findings, "RSA-BUILD-COMMAND")}`,
-    `- Scope: ${formatProjectScope(input.projectPath, input.pathMode)}`
+    `- Scope: ${formatProjectScope(input.projectPath, input.pathMode)}`,
+    `- Confidence: ${confidenceExplanation}`
   ];
 
   appendDependencyPriorityItems(lines, input.findings, input.projectPath, input.pathMode);
   appendDependencyChecklist(lines, input.findings);
+  appendWorkspacePathDependencyGroup(lines, input.findings, input.projectPath);
 
   lines.push(
     "",
@@ -743,7 +764,7 @@ function renderCompactDependencyAuditMarkdown(input: {
     "- Run `cargo audit` separately; this tool does not replace vulnerability database checks.",
     "- Review `build.rs` manually, especially filesystem, environment, network, and command execution behavior.",
     "- Pin and review git dependencies; prefer crates.io releases when practical.",
-    "- Check proc-macro and build-dependency trust boundaries because they execute during compilation."
+    "- Check proc-macro and build-dependency trust-boundary signals because they execute during compilation."
   );
 
   lines.push(
@@ -808,6 +829,26 @@ function appendDependencyChecklist(lines: string[], findings: readonly Finding[]
   );
 }
 
+function appendWorkspacePathDependencyGroup(lines: string[], findings: readonly Finding[], projectPath: string): void {
+  const { workspaceLocal, otherPath } = splitWorkspaceLocalPathDependencies(findings, projectPath);
+
+  if (workspaceLocal.length === 0 && otherPath.length === 0) {
+    return;
+  }
+
+  lines.push("", "## Workspace Trust-Boundary Signals", "");
+
+  if (workspaceLocal.length > 0) {
+    lines.push(
+      `- Workspace-local path dependencies: ${workspaceLocal.length} ${itemWord(workspaceLocal.length)} (low-priority trust-boundary signal; JSON and full Markdown keep each item).`
+    );
+  }
+
+  if (otherPath.length > 0) {
+    lines.push(`- Other path dependencies: ${otherPath.length} item(s) need individual review.`);
+  }
+}
+
 function appendTopFindings(
   lines: string[],
   findings: readonly Finding[],
@@ -845,7 +886,7 @@ function appendTopFindings(
   }
 }
 
-function appendGroupedFindings(lines: string[], findings: readonly Finding[]): void {
+function appendGroupedFindings(lines: string[], findings: readonly Finding[], projectPath: string): void {
   const categoryOrder: readonly Category[] = [
     "unsafe",
     "ffi",
@@ -871,11 +912,33 @@ function appendGroupedFindings(lines: string[], findings: readonly Finding[]): v
   for (const category of categoriesToShow) {
     const group = findings.filter((finding) => finding.category === category);
     lines.push(`### ${displayCategory(category)}`, "");
-    for (const [ruleId, count] of countByRuleId(group)) {
+    const ruleGroup = category === "dependency" ? appendWorkspaceDependencyGroup(lines, group, projectPath) : group;
+    for (const [ruleId, count] of countByRuleId(ruleGroup)) {
       lines.push(`- ${ruleId}: ${count}`);
     }
     lines.push("");
   }
+}
+
+function appendWorkspaceDependencyGroup(
+  lines: string[],
+  findings: readonly Finding[],
+  projectPath: string
+): readonly Finding[] {
+  const { workspaceLocal, otherPath } = splitWorkspaceLocalPathDependencies(findings, projectPath);
+  const pathFindingIds = new Set([...workspaceLocal, ...otherPath].map((finding) => finding.id));
+
+  if (workspaceLocal.length > 0) {
+    lines.push(
+      `- Workspace-local path dependencies: ${workspaceLocal.length} ${itemWord(workspaceLocal.length)} (low-priority trust-boundary signal; JSON and full Markdown keep each item).`
+    );
+  }
+
+  if (otherPath.length > 0) {
+    lines.push(`- RSA-DEP-PATH: ${otherPath.length}`);
+  }
+
+  return findings.filter((finding) => !pathFindingIds.has(finding.id));
 }
 
 function appendCompactHiddenDetails(lines: string[], findings: readonly Finding[]): void {
@@ -894,6 +957,7 @@ function appendCompactLimitations(lines: string[], warnings: readonly string[]):
     "## Limitations",
     "",
     "- Heuristic static review, not a release gate or formal security proof.",
+    `- Confidence values mean ${confidenceExplanation}.`,
     "- Non-diff audits are not changed-line aware; use `rust_review_current_diff` for commit/PR focus.",
     "- Findings are review signals and can require human confirmation before code changes."
   );
@@ -910,7 +974,11 @@ function formatCompactFindingLine(finding: Finding, projectPath: string, pathMod
     finding.endLine,
     projectPath,
     pathMode
-  )}\`: ${finding.title} (${displayCategory(finding.category)}, ${finding.confidence} confidence)`;
+  )}\`: ${finding.title} (${displayCategory(finding.category)} review signal, ${finding.confidence} pattern-detection confidence)`;
+}
+
+function formatSeverityConfidenceCue(finding: Finding): string {
+  return `${finding.severity} severity/${finding.confidence} pattern-detection confidence`;
 }
 
 function formatRuleCounts(findings: readonly Finding[]): string {
@@ -939,6 +1007,62 @@ function countRule(findings: readonly Finding[], ruleId: string): number {
 function countRules(findings: readonly Finding[], ruleIds: readonly string[]): number {
   const ruleSet = new Set(ruleIds);
   return findings.filter((finding) => ruleSet.has(finding.ruleId)).length;
+}
+
+function itemWord(count: number): "item" | "items" {
+  return count === 1 ? "item" : "items";
+}
+
+function signalWord(count: number): "signal" | "signals" {
+  return count === 1 ? "signal" : "signals";
+}
+
+function splitWorkspaceLocalPathDependencies(
+  findings: readonly Finding[],
+  projectPath: string
+): { workspaceLocal: Finding[]; otherPath: Finding[] } {
+  const workspaceLocal: Finding[] = [];
+  const otherPath: Finding[] = [];
+
+  for (const finding of findings.filter((item) => item.ruleId === "RSA-DEP-PATH")) {
+    if (isWorkspaceLocalPathDependency(finding, projectPath)) {
+      workspaceLocal.push(finding);
+    } else {
+      otherPath.push(finding);
+    }
+  }
+
+  return { workspaceLocal, otherPath };
+}
+
+function isWorkspaceLocalPathDependency(finding: Finding, projectPath: string): boolean {
+  const dependencyPath = extractPathDependencyValue(finding);
+  if (dependencyPath === undefined || dependencyPath.length === 0 || projectPath.length === 0) {
+    return false;
+  }
+
+  const manifestDir = posix.dirname(normalizeFindingFile(finding.file));
+  const basePath = manifestDir === "." ? projectPath : resolve(projectPath, manifestDir);
+  const dependencyAbsolutePath = isAbsolute(dependencyPath)
+    ? resolve(dependencyPath)
+    : resolve(basePath, dependencyPath);
+  const projectRelativePath = relative(projectPath, dependencyAbsolutePath);
+
+  return (
+    projectRelativePath === "" ||
+    (!projectRelativePath.startsWith("..") && !isAbsolute(projectRelativePath))
+  );
+}
+
+function extractPathDependencyValue(finding: Finding): string | undefined {
+  for (const evidence of finding.evidence) {
+    const match = /\bpath\s*=\s*["']([^"']+)["']/.exec(evidence);
+    if (match?.[1] !== undefined) {
+      return match[1].trim();
+    }
+  }
+
+  return undefined;
 }
 
 function displayCategory(category: Category): string {
@@ -1258,6 +1382,7 @@ function renderDiffReviewMarkdown(input: {
     `- Report mode: ${input.reportMode}`,
     `- Changed files: ${input.diffAffectedFiles.length}`,
     `- Changed-line window: ${input.diffReview.changedLineWindow}`,
+    `- Confidence: ${confidenceExplanation}`,
     "- Diff context is split by added lines, same unsafe site, same function, and legacy nearby relation."
   ];
 
@@ -1495,6 +1620,7 @@ function appendLimitations(lines: string[], warnings: readonly string[]): void {
     "## Limitations",
     "",
     "- Heuristic static scan.",
+    `- Confidence values mean ${confidenceExplanation}.`,
     "- Minimal Rust context uses text and brace heuristics, not full AST/data-flow/taint analysis.",
     "- Diff relation is based on added lines and lightweight function/unsafe-site context."
   );
@@ -1700,7 +1826,7 @@ function formatReviewGroup(
 
   lines.push("- Findings:");
   for (const item of group.items) {
-    lines.push(`  - ${conciseFindingLabel(item.finding)} (${item.finding.ruleId}, ${item.finding.severity}/${item.finding.confidence})`);
+    lines.push(`  - ${conciseFindingLabel(item.finding)} (${item.finding.ruleId}, ${formatSeverityConfidenceCue(item.finding)})`);
   }
 
   if (reportMode === "full") {
@@ -1775,7 +1901,7 @@ function formatDiffFinding(
     `${headingPrefix} ${finding.ruleId}: ${finding.title}`,
     "",
     `- Severity: ${titleCase(finding.severity)}`,
-    `- Confidence: ${titleCase(finding.confidence)}`,
+    `- Confidence: ${titleCase(finding.confidence)} pattern-detection confidence (not exploitability confidence)`,
     `- Rule: ${finding.ruleId}`,
     `- Location: \`${formatDisplayLocation(finding.file, finding.startLine, finding.endLine, projectPath, pathMode)}\``,
     `- Diff relation: ${item.diffContext.relation}`,
