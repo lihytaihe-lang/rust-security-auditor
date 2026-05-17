@@ -46,7 +46,7 @@ describe("finding schema", () => {
     );
   });
 
-  it("summarizes severity and release gate counts", () => {
+  it("summarizes severity and pre-release counts", () => {
     const summary = summarizeFindings([
       commandFinding,
       {

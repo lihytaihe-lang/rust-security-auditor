@@ -61,6 +61,7 @@ Tools:
   rust_audit_unsafe [--includeDocumentedUnsafe false]
   rust_audit_dependencies
   rust_review_current_diff [--baseRef <ref>] [--headRef <ref>] [--staged true] [--includePreExisting true]
+  rust_list_accepted_risks --includeExpired true --includeInvalid true [--outputFormat markdown]
 `);
 }
 

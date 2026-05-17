@@ -2,7 +2,7 @@ import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, posix, resolve } from "node:path";
 import { parseUnifiedDiff, type GitDiffFile, type ParsedGitDiff } from "../git/index.js";
 import { renderMarkdownReport, toJsonReport, type AuditReportInput, type Category, categories, type Finding, type Severity, severities } from "../reports/index.js";
-import { DependencyScanner, ProjectScanner, UnsafeScanner, discoverRustProject, scanRustProject, type RustProject, type RustProjectScanResult } from "../scanners/index.js";
+import { DependencyScanner, ProjectScanner, UnsafeScanner, discoverRustProject, listAcceptedRiskInventory, scanRustProject, type RustProject, type RustProjectScanResult } from "../scanners/index.js";
 import { countActiveSuppressions, countExpiredSuppressions, countInvalidSuppressions, dedupeFindings, sortFindings } from "../scanners/resultUtils.js";
 import type { SuppressedFinding } from "../scanners/types.js";
 import { runShellCommand } from "../utils/shell.js";
@@ -19,15 +19,20 @@ import {
   type DiffReviewSummaryMetrics,
   type DiffReviewMode,
   type FindingDiffContext,
+  type AcceptedRisk,
+  type AcceptedRiskInventorySummary,
+  type AcceptedRiskInventoryToolOutput,
   type McpAuditError,
   type McpAuditSummary,
   type McpAuditToolOutput,
+  type McpToolOutput,
   type McpToolName,
   type OutputFormat,
   type RustAuditDependenciesInput,
   type RustAuditProjectInput,
   type RustAuditToolInput,
   type RustAuditUnsafeInput,
+  type RustListAcceptedRisksInput,
   type RustReviewCurrentDiffInput,
   type SuppressionSummary,
   mcpToolNames
@@ -44,7 +49,7 @@ export function isMcpToolName(value: string): value is McpToolName {
 export async function callRustAuditTool(
   tool: McpToolName,
   input: RustAuditToolInput
-): Promise<McpAuditToolOutput> {
+): Promise<McpToolOutput> {
   switch (tool) {
     case "rust_audit_project":
       return await rustAuditProject(input as RustAuditProjectInput);
@@ -54,6 +59,8 @@ export async function callRustAuditTool(
       return await rustAuditDependencies(input as RustAuditDependenciesInput);
     case "rust_review_current_diff":
       return await rustReviewCurrentDiff(input as RustReviewCurrentDiffInput);
+    case "rust_list_accepted_risks":
+      return await rustListAcceptedRisks(input as RustListAcceptedRisksInput);
   }
 }
 
@@ -195,6 +202,37 @@ export async function rustReviewCurrentDiff(input: RustReviewCurrentDiffInput): 
       summaryMetrics
     });
   });
+}
+
+export async function rustListAcceptedRisks(
+  input: RustListAcceptedRisksInput
+): Promise<AcceptedRiskInventoryToolOutput> {
+  try {
+    const projectPath = await resolveRustProjectPath(input.projectPath);
+    const inventory = await listAcceptedRiskInventory({
+      workspacePath: projectPath,
+      includeExpired: input.includeExpired === true,
+      includeInvalid: input.includeInvalid === true
+    });
+    const output: AcceptedRiskInventoryToolOutput = {
+      tool: "rust_list_accepted_risks",
+      projectPath,
+      summary: inventory.summary,
+      acceptedRisks: inventory.acceptedRisks
+    };
+
+    if (input.outputFormat === "markdown") {
+      output.reportMarkdown = renderAcceptedRiskInventoryMarkdown({
+        projectPath,
+        summary: inventory.summary,
+        acceptedRisks: inventory.acceptedRisks
+      });
+    }
+
+    return output;
+  } catch (error) {
+    return errorAcceptedRiskInventoryOutput(input.projectPath, toMcpAuditError(error));
+  }
 }
 
 class McpToolInputError extends Error {
@@ -388,6 +426,19 @@ function errorToolOutput(tool: McpToolName, projectPath: string, error: McpAudit
   };
 }
 
+function errorAcceptedRiskInventoryOutput(
+  projectPath: string,
+  error: McpAuditError
+): AcceptedRiskInventoryToolOutput {
+  return {
+    tool: "rust_list_accepted_risks",
+    projectPath,
+    summary: emptyAcceptedRiskInventorySummary(),
+    acceptedRisks: [],
+    error
+  };
+}
+
 function summarizeForMcp(findings: readonly Finding[], suppressedCount: number): McpAuditSummary {
   const severityCounts = Object.fromEntries(severities.map((severity) => [severity, 0])) as Record<Severity, number>;
   const categoryCounts = Object.fromEntries(categories.map((category) => [category, 0])) as Record<Category, number>;
@@ -413,6 +464,16 @@ function emptySummary(riskLevel: McpAuditSummary["riskLevel"]): McpAuditSummary 
     severityCounts: Object.fromEntries(severities.map((severity) => [severity, 0])) as Record<Severity, number>,
     categoryCounts: Object.fromEntries(categories.map((category) => [category, 0])) as Record<Category, number>,
     riskLevel
+  };
+}
+
+function emptyAcceptedRiskInventorySummary(): AcceptedRiskInventorySummary {
+  return {
+    acceptedRiskCount: 0,
+    expiredCount: 0,
+    invalidCount: 0,
+    byRuleId: {},
+    byOwner: {}
   };
 }
 
@@ -628,6 +689,79 @@ function appendLimitations(lines: string[], warnings: readonly string[]): void {
   for (const warning of warnings) {
     lines.push(`- ${warning}`);
   }
+}
+
+function renderAcceptedRiskInventoryMarkdown(input: {
+  projectPath: string;
+  summary: AcceptedRiskInventorySummary;
+  acceptedRisks: readonly AcceptedRisk[];
+}): string {
+  const active = input.acceptedRisks.filter((risk) => risk.isValid && !risk.isExpired);
+  const expired = input.acceptedRisks.filter((risk) => risk.isExpired);
+  const invalid = input.acceptedRisks.filter((risk) => !risk.isValid);
+  const lines: string[] = [
+    "# Accepted Risk Inventory",
+    "",
+    "## Summary",
+    "",
+    `- Accepted risks: ${input.summary.acceptedRiskCount}`,
+    `- Expired: ${input.summary.expiredCount}`,
+    `- Invalid: ${input.summary.invalidCount}`,
+    `- Owners: ${formatCountRecord(input.summary.byOwner)}`,
+    `- Rule IDs: ${formatCountRecord(input.summary.byRuleId)}`,
+    `- Scope: ${input.projectPath}`
+  ];
+
+  appendAcceptedRiskSection(lines, "Active Accepted Risks", active);
+  appendAcceptedRiskSection(lines, "Expired Suppressions", expired);
+  appendAcceptedRiskSection(lines, "Invalid Suppressions", invalid);
+
+  lines.push(
+    "",
+    "## Recommended Actions",
+    "",
+    "- Expired suppression: re-evaluate the accepted risk or remove the suppression.",
+    "- Invalid suppression: add a reason after `--` or fix the suppression format.",
+    "- Missing owner: add `owner=` metadata so future reviewers know who accepted the risk.",
+    "- Missing ticket: add `ticket=` metadata for traceability."
+  );
+
+  return `${lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd()}\n`;
+}
+
+function appendAcceptedRiskSection(
+  lines: string[],
+  title: "Active Accepted Risks" | "Expired Suppressions" | "Invalid Suppressions",
+  risks: readonly AcceptedRisk[]
+): void {
+  lines.push("", `## ${title}`, "");
+
+  if (risks.length === 0) {
+    lines.push("None.");
+    return;
+  }
+
+  for (const risk of risks) {
+    lines.push(`- ${formatAcceptedRisk(risk)}`);
+  }
+}
+
+function formatAcceptedRisk(risk: AcceptedRisk): string {
+  const metadata = [
+    risk.owner === undefined ? "owner: missing" : `owner: ${risk.owner}`,
+    risk.ticket === undefined ? "ticket: missing" : `ticket: ${risk.ticket}`,
+    risk.until === undefined ? undefined : `until: ${risk.until}`
+  ].filter((item): item is string => item !== undefined);
+  const reason = risk.reason.length > 0 ? risk.reason : "missing required reason";
+  const invalid = risk.isValid ? "" : `; invalid: ${risk.invalidSuppression ?? "suppression directive is invalid"}`;
+
+  return `${risk.ruleId} at \`${risk.file}:${risk.line}\`; reason: ${reason}; ${metadata.join("; ")}; raw: \`${risk.rawComment}\`${invalid}`;
+}
+
+function formatCountRecord(record: Record<string, number>): string {
+  const entries = Object.entries(record);
+  if (entries.length === 0) return "none";
+  return entries.map(([key, value]) => `${key}: ${value}`).join(", ");
 }
 
 function formatDiffFinding(item: DiffAwareFinding): string[] {

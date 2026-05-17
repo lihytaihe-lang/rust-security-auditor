@@ -31,6 +31,7 @@ Then restart Codex or the MCP client so it reloads the server and tool list. The
 - `rust_audit_unsafe`
 - `rust_audit_dependencies`
 - `rust_review_current_diff`
+- `rust_list_accepted_risks`
 
 ## PROJECT_PATH_NOT_FOUND
 
@@ -68,6 +69,10 @@ The reason after `--` is required. The rule id must be exact; broad `ignore all`
 ## Expired Suppression Reappeared
 
 This is expected. When `until=YYYY-MM-DD` is before the current date, the suppression is no longer active, the finding is shown again, `expiredSuppressionCount` increases, and `rust_review_current_diff.reviewDecision.status` is at least `needs_attention`. Review the risk again, fix the code, or explicitly renew the accepted-risk record with a fresh reason and tracking metadata.
+
+## Accepted Risk Inventory Looks Incomplete
+
+`rust_list_accepted_risks` only scans Rust source files under `projectPath` for `rustsec-auditor` suppression comments. It does not run full scanner rules, so it can list suppression records that are not currently attached to a finding. Pass `includeExpired: true` to show expired suppressions and `includeInvalid: true` to show invalid suppressions.
 
 ## User Asks For A Full Security Guarantee
 

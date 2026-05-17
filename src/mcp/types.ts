@@ -6,7 +6,8 @@ export const mcpToolNames = [
   "rust_audit_project",
   "rust_audit_unsafe",
   "rust_audit_dependencies",
-  "rust_review_current_diff"
+  "rust_review_current_diff",
+  "rust_list_accepted_risks"
 ] as const;
 
 export type McpToolName = (typeof mcpToolNames)[number];
@@ -39,11 +40,19 @@ export interface RustReviewCurrentDiffInput {
   outputFormat?: OutputFormat | undefined;
 }
 
+export interface RustListAcceptedRisksInput {
+  projectPath: string;
+  includeExpired: boolean;
+  includeInvalid: boolean;
+  outputFormat: OutputFormat;
+}
+
 export type RustAuditToolInput =
   | RustAuditProjectInput
   | RustAuditUnsafeInput
   | RustAuditDependenciesInput
-  | RustReviewCurrentDiffInput;
+  | RustReviewCurrentDiffInput
+  | RustListAcceptedRisksInput;
 
 export interface McpAuditSummary {
   findingCount: number;
@@ -108,6 +117,28 @@ export interface SuppressionSummary {
   invalidSuppressionCount: number;
 }
 
+export interface AcceptedRiskInventorySummary {
+  acceptedRiskCount: number;
+  expiredCount: number;
+  invalidCount: number;
+  byRuleId: Record<string, number>;
+  byOwner: Record<string, number>;
+}
+
+export interface AcceptedRisk {
+  ruleId: string;
+  file: string;
+  line: number;
+  reason: string;
+  owner?: string | undefined;
+  ticket?: string | undefined;
+  until?: string | undefined;
+  isExpired: boolean;
+  isValid: boolean;
+  rawComment: string;
+  invalidSuppression?: string | undefined;
+}
+
 export interface DiffReviewSummaryMetrics {
   introducedFindingCount: number;
   nearChangedFindingCount: number;
@@ -145,3 +176,14 @@ export interface McpAuditToolOutput {
   suppressionSummary?: SuppressionSummary;
   error?: McpAuditError;
 }
+
+export interface AcceptedRiskInventoryToolOutput {
+  tool: "rust_list_accepted_risks";
+  projectPath: string;
+  summary: AcceptedRiskInventorySummary;
+  acceptedRisks: AcceptedRisk[];
+  reportMarkdown?: string | undefined;
+  error?: McpAuditError | undefined;
+}
+
+export type McpToolOutput = McpAuditToolOutput | AcceptedRiskInventoryToolOutput;

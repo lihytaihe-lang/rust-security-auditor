@@ -617,7 +617,7 @@ No info risk findings.
 
 No manual review items.
 
-## Release Gate Recommendation
+## Pre-Release Recommendation
 
 Fix high or critical security findings before release or merge.
 

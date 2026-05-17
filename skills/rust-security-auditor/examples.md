@@ -85,8 +85,8 @@ Recommended fixes:
 - Add or tighten SAFETY comments that state the caller and callee invariants.
 - Add tests or debug assertions for reachable preconditions where possible.
 
-Release guidance:
-- Treat medium-confidence unsafe findings as manual release checklist items.
+Pre-release guidance:
+- Treat medium-confidence unsafe findings as manual checklist items before release.
 ```
 
 ## Example 3: Dependency And Supply-Chain Audit
@@ -123,18 +123,18 @@ Recommended fixes:
 - Keep build script behavior minimal and documented.
 ```
 
-## Example 4: Release Security Audit
+## Example 4: Pre-Release Project Scan
 
 User:
 
 ```text
-@Rust Security Auditor run release security audit
+@Rust Security Auditor audit project before release
 ```
 
 Expected behavior:
 
 - Call `rust_audit_project`.
-- Produce a release-oriented summary, risk level, blocking findings, recommended fixes, and manual-review items.
+- Produce a pre-release summary, risk level, blocking findings, recommended fixes, and manual-review items.
 - State that the scan is heuristic and local, not a proof of security.
 - Include suppression guidance only for intentionally accepted findings.
 
@@ -156,7 +156,7 @@ Manual review needed:
 False positives / suppressions:
 - If a finding is intentional and reviewed, use a narrow inline suppression for the specific rule id with a required reason and preferably owner, ticket, and until.
 
-Release recommendation:
+Pre-release recommendation:
 - Do not release until high-severity findings are resolved. This result is a heuristic audit, not a formal security proof.
 ```
 
@@ -242,9 +242,9 @@ User:
 Expected behavior:
 
 - Call `rust_audit_project`.
-- Treat high and critical findings as release blockers.
-- List medium and low-confidence findings as manual release checklist items.
-- Include the overall risk level and release recommendation.
+- Treat high and critical findings as pre-release blockers.
+- List medium and low-confidence findings as manual checklist items.
+- Include the overall risk level and pre-release recommendation.
 
 Expected Codex response shape:
 
@@ -257,6 +257,53 @@ Blocking issues:
 Manual review needed:
 - Medium findings require owner confirmation before release.
 
-Release recommendation:
+Pre-release recommendation:
 - Release can proceed only after manual-review items are accepted. The scan is heuristic and local.
+```
+
+## Example 8: Accepted Risk Inventory
+
+User:
+
+```text
+@Rust Security Auditor list accepted risks
+```
+
+Equivalent entries:
+
+```text
+@Rust Security Auditor show suppressed risks
+@Rust Security Auditor check expired suppressions
+@Rust Security Auditor review accepted risk inventory before release
+```
+
+Expected behavior:
+
+- Call `rust_list_accepted_risks`.
+- Use the current local Rust project directory as `projectPath`.
+- Set `includeExpired: true` when the user asks about expired suppressions or release readiness.
+- Set `includeInvalid: true` when the user asks for cleanup, suppression health, or a full inventory.
+- Do not run `rust_audit_project` unless the user also asks for a full project audit.
+- Do not modify suppression comments automatically.
+
+Expected Codex response shape:
+
+```text
+Accepted risk inventory:
+- Active accepted risks: 4
+- Expired suppressions: 1
+- Invalid suppressions: 1
+- Rule IDs: RSA-UNSAFE-BLOCK: 6
+- Owners: @security: 1, (missing): 5
+
+Expired suppressions:
+- RSA-UNSAFE-BLOCK at src/lib.rs:26 expired on 2000-01-01 and should be re-evaluated or removed.
+
+Invalid suppressions:
+- RSA-UNSAFE-BLOCK at src/lib.rs:7 is missing the required reason after `--`.
+
+Recommended actions:
+- Re-evaluate expired suppressions.
+- Add missing reasons or fix invalid formats.
+- Add owner and ticket metadata for traceability.
 ```

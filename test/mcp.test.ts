@@ -13,6 +13,7 @@ import {
   rustAuditDependencies,
   rustAuditProject,
   rustAuditUnsafe,
+  rustListAcceptedRisks,
   rustReviewCurrentDiff
 } from "../src/mcp/index.js";
 import { actionabilityForDiffFinding, inferReviewDecision } from "../src/mcp/reviewDecision.js";
@@ -22,6 +23,7 @@ import { runShellCommandOrThrow } from "../src/utils/shell.js";
 const vulnerableFixturePath = resolve("test/fixtures/vulnerable-rust-project");
 const dependencyRiskFixturePath = resolve("test/fixtures/dependency-risk");
 const unsafeDocumentedFixturePath = resolve("test/fixtures/unsafe-documented");
+const suppressedFixturePath = resolve("test/fixtures/suppressed-rust-project");
 
 describe("MCP audit tools", () => {
   it("lists MCP tools through an MCP client transport", async () => {
@@ -46,6 +48,10 @@ describe("MCP audit tools", () => {
         result.tools.find((tool) => tool.name === "rust_review_current_diff")?.description ?? "",
         /commit|PR/i
       );
+      assert.match(
+        result.tools.find((tool) => tool.name === "rust_list_accepted_risks")?.description ?? "",
+        /release|suppression|expired/i
+      );
     });
   });
 
@@ -66,6 +72,28 @@ describe("MCP audit tools", () => {
       assert.equal(output.error, undefined);
       assert.ok(output.findings.length > 0);
       assert.ok(output.findings.every((finding) => finding.ruleId.startsWith("RSA-DEP-") || finding.ruleId.startsWith("RSA-BUILD-")));
+    });
+  });
+
+  it("calls rust_list_accepted_risks through an MCP client transport", async () => {
+    await withMcpClient(async (client) => {
+      const result = await client.callTool({
+        name: "rust_list_accepted_risks",
+        arguments: {
+          projectPath: suppressedFixturePath,
+          includeExpired: true,
+          includeInvalid: true,
+          outputFormat: "json"
+        }
+      });
+
+      assert.equal("content" in result, true);
+      assert.equal(result.isError, false);
+
+      const output = result.structuredContent as Awaited<ReturnType<typeof rustListAcceptedRisks>>;
+      assert.equal(output.tool, "rust_list_accepted_risks");
+      assert.equal(output.error, undefined);
+      assert.equal(output.acceptedRisks.length, 6);
     });
   });
 
@@ -126,6 +154,60 @@ describe("MCP audit tools", () => {
     );
     assert.ok(output.findings.some((finding) => finding.ruleId === "RSA-BUILD-COMMAND"));
     assert.equal(output.findings.some((finding) => finding.ruleId.startsWith("RSA-UNSAFE-")), false);
+  });
+
+  it("rust_list_accepted_risks inventories valid, expired, and invalid suppressions", async () => {
+    const output = await rustListAcceptedRisks({
+      projectPath: suppressedFixturePath,
+      includeExpired: true,
+      includeInvalid: true,
+      outputFormat: "markdown"
+    });
+
+    assert.equal(output.tool, "rust_list_accepted_risks");
+    assert.equal(output.projectPath, suppressedFixturePath);
+    assert.equal(output.error, undefined);
+    assert.equal(output.summary.acceptedRiskCount, 4);
+    assert.equal(output.summary.expiredCount, 1);
+    assert.equal(output.summary.invalidCount, 1);
+    assert.deepEqual(output.summary.byRuleId, { "RSA-UNSAFE-BLOCK": 6 });
+    assert.deepEqual(output.summary.byOwner, { "(missing)": 5, "@security": 1 });
+    assert.equal(output.acceptedRisks.length, 6);
+    assert.ok(output.acceptedRisks.some((risk) => risk.isValid && !risk.isExpired && risk.reason.includes("legacy FFI wrapper")));
+    assert.ok(output.acceptedRisks.some((risk) => risk.isExpired && risk.until === "2000-01-01"));
+    assert.ok(output.acceptedRisks.some((risk) => !risk.isValid && risk.invalidSuppression?.includes("reason is required")));
+    assert.ok(output.acceptedRisks.every((risk) => risk.rawComment.includes("rustsec-auditor: ignore")));
+    assert.match(output.reportMarkdown ?? "", /## Active Accepted Risks/);
+    assert.match(output.reportMarkdown ?? "", /## Expired Suppressions/);
+    assert.match(output.reportMarkdown ?? "", /## Invalid Suppressions/);
+  });
+
+  it("rust_list_accepted_risks can hide expired and invalid suppressions", async () => {
+    const activeOnly = await rustListAcceptedRisks({
+      projectPath: suppressedFixturePath,
+      includeExpired: false,
+      includeInvalid: false,
+      outputFormat: "json"
+    });
+    const withoutInvalid = await rustListAcceptedRisks({
+      projectPath: suppressedFixturePath,
+      includeExpired: true,
+      includeInvalid: false,
+      outputFormat: "json"
+    });
+
+    assert.equal(activeOnly.acceptedRisks.length, 4);
+    assert.equal(activeOnly.acceptedRisks.some((risk) => risk.isExpired), false);
+    assert.equal(activeOnly.acceptedRisks.some((risk) => !risk.isValid), false);
+    assert.equal(activeOnly.summary.acceptedRiskCount, 4);
+    assert.equal(activeOnly.summary.expiredCount, 0);
+    assert.equal(activeOnly.summary.invalidCount, 0);
+
+    assert.equal(withoutInvalid.acceptedRisks.length, 5);
+    assert.equal(withoutInvalid.acceptedRisks.some((risk) => risk.isExpired), true);
+    assert.equal(withoutInvalid.acceptedRisks.some((risk) => !risk.isValid), false);
+    assert.equal(withoutInvalid.summary.expiredCount, 1);
+    assert.equal(withoutInvalid.summary.invalidCount, 0);
   });
 
   it("rust_review_current_diff classifies introduced, nearby, and pre-existing findings", async () => {

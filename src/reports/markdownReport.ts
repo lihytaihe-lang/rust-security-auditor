@@ -65,7 +65,7 @@ export function renderMarkdownReport(input: AuditReportInput): string {
 
   lines.push(
     "",
-    "## Release Gate Recommendation",
+    "## Pre-Release Recommendation",
     "",
     input.releaseGateRecommendation ?? defaultReleaseGateRecommendation(summary.result)
   );

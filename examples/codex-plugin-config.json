@@ -9,9 +9,13 @@
       "@Rust Security Auditor audit unsafe",
       "@Rust Security Auditor audit dependencies",
       "@Rust Security Auditor audit project",
-      "@Rust Security Auditor run release security audit",
+      "@Rust Security Auditor audit project before release",
       "@Rust Security Auditor check this Rust project before commit",
-      "@Rust Security Auditor check this Rust project before release"
+      "@Rust Security Auditor check this Rust project before release",
+      "@Rust Security Auditor list accepted risks",
+      "@Rust Security Auditor show suppressed risks",
+      "@Rust Security Auditor check expired suppressions",
+      "@Rust Security Auditor review accepted risk inventory before release"
     ]
   },
   "mcpServers": {
@@ -58,13 +62,29 @@
       "name": "rust_audit_project",
       "naturalLanguageEntries": [
         "audit project",
-        "run release security audit",
+        "audit project before release",
         "check this Rust project before release"
       ],
-      "recommendedUsage": "Use before release or for a full local Rust project security health check.",
+      "recommendedUsage": "Use before release or for a full local Rust project security scan.",
       "defaultArguments": {
         "projectPath": "/absolute/path/to/rust/project",
         "includeSuppressed": false,
+        "outputFormat": "json"
+      }
+    },
+    {
+      "name": "rust_list_accepted_risks",
+      "naturalLanguageEntries": [
+        "list accepted risks",
+        "show suppressed risks",
+        "check expired suppressions",
+        "review accepted risk inventory before release"
+      ],
+      "recommendedUsage": "Use to inventory rustsec-auditor suppression comments before release or security re-review without running the full scanner or modifying code.",
+      "defaultArguments": {
+        "projectPath": "/absolute/path/to/rust/project",
+        "includeExpired": true,
+        "includeInvalid": true,
         "outputFormat": "json"
       }
     }

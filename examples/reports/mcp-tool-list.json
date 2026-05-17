@@ -167,6 +167,53 @@
       "execution": {
         "taskSupport": "forbidden"
       }
+    },
+    {
+      "name": "rust_list_accepted_risks",
+      "title": "List accepted Rust security risks",
+      "description": "Use before release, during security re-review, when checking whether rustsec-auditor suppressions have expired, or when cleaning up invalid suppression comments. Scans only Rust source files for rustsec-auditor suppression comments and returns an accepted-risk inventory without running the full scanner and without modifying code.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectPath": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Absolute or relative local directory for a Rust Cargo project or workspace; only files under this directory are scanned."
+          },
+          "includeExpired": {
+            "description": "When true, include expired rustsec-auditor suppression comments in acceptedRisks and the Markdown report.",
+            "type": "boolean"
+          },
+          "includeInvalid": {
+            "description": "When true, include invalid rustsec-auditor suppression comments in acceptedRisks and the Markdown report.",
+            "type": "boolean"
+          },
+          "outputFormat": {
+            "description": "Set to json for structured JSON; set to markdown to include reportMarkdown text for display.",
+            "type": "string",
+            "enum": [
+              "json",
+              "markdown"
+            ]
+          }
+        },
+        "required": [
+          "projectPath",
+          "includeExpired",
+          "includeInvalid",
+          "outputFormat"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
     }
   ]
 }

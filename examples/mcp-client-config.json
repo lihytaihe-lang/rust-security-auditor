@@ -52,6 +52,16 @@
         "includePreExisting": false,
         "outputFormat": "json"
       }
+    },
+    {
+      "name": "rust_list_accepted_risks",
+      "whenToUse": "Before release, during security re-review, when checking expired suppressions, or when cleaning up invalid rustsec-auditor suppression comments. Returns an accepted-risk inventory without running the full scanner or modifying code.",
+      "arguments": {
+        "projectPath": "/absolute/path/to/rust/project",
+        "includeExpired": true,
+        "includeInvalid": true,
+        "outputFormat": "json"
+      }
     }
   ],
   "troubleshooting": [
@@ -74,6 +84,10 @@
     {
       "symptom": "The server starts from a client but tools are not visible.",
       "check": "Run npm run typecheck and npm test locally, then restart the MCP client so it reloads the tool list."
+    },
+    {
+      "symptom": "Accepted risk inventory omits expired or invalid suppressions.",
+      "check": "Call rust_list_accepted_risks with includeExpired=true and includeInvalid=true."
     }
   ]
 }

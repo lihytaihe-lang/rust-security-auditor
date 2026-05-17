@@ -1,6 +1,6 @@
 ---
 name: rust-security-auditor
-description: Use this skill when a user asks Codex to review a local Rust project, current diff, unsafe/FFI code, Cargo dependencies, or release readiness for Rust security risks using the Rust Security Auditor MCP server.
+description: Use this skill when a user asks Codex to review a local Rust project, current diff, unsafe/FFI code, Cargo dependencies, or accepted-risk inventory for Rust security risks using the Rust Security Auditor MCP server.
 ---
 
 # Rust Security Auditor
@@ -20,8 +20,12 @@ Map these user entries to MCP tools:
 | `audit unsafe` | `rust_audit_unsafe` | Unsafe, FFI, raw pointer, initialization, and unsafe Send/Sync review. |
 | `audit dependencies` | `rust_audit_dependencies` | Cargo and build-time supply-chain review. |
 | `audit project` | `rust_audit_project` | Full local Rust project security health check. |
-| `run release security audit` | `rust_audit_project` | Release-gate style full project audit. |
-| `check this Rust project before release` | `rust_audit_project` | Release-gate style full project audit. |
+| `audit project before release` | `rust_audit_project` | Pre-release local project scan. |
+| `check this Rust project before release` | `rust_audit_project` | Pre-release local project scan. |
+| `list accepted risks` | `rust_list_accepted_risks` | Inventory accepted-risk suppression comments without running the full scanner. |
+| `show suppressed risks` | `rust_list_accepted_risks` | Show active accepted risks and optionally expired or invalid suppressions. |
+| `check expired suppressions` | `rust_list_accepted_risks` | Review expired `rustsec-auditor` suppressions. |
+| `review accepted risk inventory before release` | `rust_list_accepted_risks` | Pre-release accepted-risk inventory and cleanup check. |
 
 Always pass the current local Rust project directory as `projectPath` unless the user provides a different local path. Prefer `outputFormat: "json"` when Codex will summarize and reason over the result; use `outputFormat: "markdown"` when the user explicitly wants the generated report text.
 
@@ -47,7 +51,9 @@ Call `rust_audit_unsafe` when the user asks about unsafe Rust, FFI, raw pointers
 
 Call `rust_audit_dependencies` when the user asks about dependencies, supply chain, Cargo changes, `Cargo.toml`, `Cargo.lock`, `build.rs`, `git` dependencies, `path` dependencies, proc macros, or build dependencies. Focus on build-time code execution, dependency source trust, revision pinning, and local path trust boundaries.
 
-Call `rust_audit_project` when the user asks for a full project audit, project health check, release security audit, before release, or before publishing. Treat this as the broadest local scan across unsafe/FFI, dependency/supply-chain, build scripts, command execution, filesystem/path handling, input boundaries, secrets, panic/DoS, concurrency, and manual-review categories.
+Call `rust_audit_project` when the user asks for a full local project scan, project health check, before release, or before publishing. Treat this as the broadest local scan across unsafe/FFI, dependency/supply-chain, build scripts, command execution, filesystem/path handling, input boundaries, secrets, panic/DoS, concurrency, and manual-review categories.
+
+Call `rust_list_accepted_risks` when the user asks to list accepted risks, show suppressed risks, check expired suppressions, clean up invalid suppressions, or review the accepted risk inventory before release. This tool only scans Rust source files for `rustsec-auditor` suppression comments; it does not run the full scanner and does not modify source code. Use `includeExpired: true` when the user wants expired suppressions, `includeInvalid: true` when the user wants invalid suppressions, and `outputFormat: "markdown"` when the user asks for the inventory report.
 
 ## Explaining Findings
 
@@ -81,7 +87,7 @@ Actionability guidance:
 
 For every finding, ground the explanation in the returned `ruleId`, `file`, line, severity, confidence, evidence, `whyItMatters`, risk scenario, and suggested fix. Do not invent exploitability beyond the evidence.
 
-## Commit And Release Gate Guidance
+## Commit And Pre-Release Guidance
 
 Before commit:
 
@@ -93,7 +99,7 @@ Before commit:
 - Hide or summarize `pre_existing_in_changed_file` findings unless `includePreExisting: true` was requested.
 - Allow `low` and `info` findings to be tracked unless they indicate policy-sensitive code.
 
-Before release:
+Before pre-release review:
 
 - Block by default on any `critical` or `high` finding from `rust_audit_project`.
 - Treat any `medium`, `manual_review`, or low-confidence finding as a required manual release checklist item.
@@ -120,6 +126,15 @@ Rules for explaining suppression:
 - Expired suppressions are shown again and make current diff review at least `needs_attention`.
 - Invalid suppressions are ignored and should be fixed as accepted-risk metadata, not treated as hidden findings.
 - High-confidence blockers should default to `fix_before_commit`, not suppression.
+
+For accepted-risk inventory output, summarize:
+
+- Active accepted risks.
+- Expired suppressions that need re-evaluation or removal.
+- Invalid suppressions that need a reason or format fix.
+- Missing `owner=` and `ticket=` metadata that should be added for traceability.
+
+Do not add, renew, or delete suppression comments unless the user explicitly asks for code changes.
 
 Useful Codex prompts:
 

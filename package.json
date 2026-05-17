@@ -1,10 +1,14 @@
 {
   "name": "rust-security-auditor",
   "version": "0.1.0",
-  "description": "A low-noise Rust security audit kernel for Codex and future MCP integrations.",
-  "private": true,
+  "description": "Local MCP server for focused Rust security review in Codex and MCP clients.",
   "type": "module",
   "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "bin": {
+    "rust-security-auditor-mcp": "./dist/src/mcp/server.js",
+    "rust-security-auditor-mcp-call": "./dist/src/mcp/debug.js"
+  },
   "exports": {
     ".": "./dist/src/index.js",
     "./mcp": "./dist/src/mcp/index.js",
@@ -17,19 +21,44 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "npm run typecheck",
-    "mcp": "npm run build --silent && node dist/src/mcp/server.js",
-    "mcp:call": "npm run build --silent && node dist/src/mcp/debug.js",
+    "mcp": "npm --silent run build && node dist/src/mcp/server.js",
+    "mcp:call": "npm --silent run build && node dist/src/mcp/debug.js",
     "test": "npm run build && node --test dist/test/**/*.test.js",
+    "check": "npm run typecheck && npm test && git diff --check",
+    "prepack": "npm run build",
     "clean": "rm -rf dist"
   },
   "keywords": [
     "rust",
     "security",
     "audit",
+    "security-audit",
     "codex",
-    "mcp"
+    "mcp",
+    "model-context-protocol",
+    "static-analysis",
+    "unsafe-rust",
+    "supply-chain"
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/rust-security-auditor.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-org/rust-security-auditor/issues"
+  },
+  "homepage": "https://github.com/your-org/rust-security-auditor#readme",
+  "files": [
+    "dist/",
+    "examples/",
+    "skills/",
+    "README.md",
+    "LICENSE",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "ROADMAP.md"
+  ],
   "engines": {
     "node": ">=20"
   },

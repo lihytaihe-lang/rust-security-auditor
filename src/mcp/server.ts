@@ -9,9 +9,10 @@ import {
   rustAuditDependencies,
   rustAuditProject,
   rustAuditUnsafe,
+  rustListAcceptedRisks,
   rustReviewCurrentDiff
 } from "./tools.js";
-import type { McpAuditToolOutput } from "./types.js";
+import type { McpToolOutput } from "./types.js";
 
 const outputFormatSchema = z.enum(["json", "markdown"]);
 const readOnlyAnnotations = {
@@ -131,6 +132,30 @@ export function createRustSecurityAuditorMcpServer(): McpServer {
     async (input) => toCallToolResult(await rustReviewCurrentDiff(input))
   );
 
+  server.registerTool(
+    "rust_list_accepted_risks",
+    {
+      title: "List accepted Rust security risks",
+      description:
+        "Use before release, during security re-review, when checking whether rustsec-auditor suppressions have expired, or when cleaning up invalid suppression comments. Scans only Rust source files for rustsec-auditor suppression comments and returns an accepted-risk inventory without running the full scanner and without modifying code.",
+      annotations: readOnlyAnnotations,
+      inputSchema: {
+        projectPath: z
+          .string()
+          .min(1)
+          .describe("Absolute or relative local directory for a Rust Cargo project or workspace; only files under this directory are scanned."),
+        includeExpired: z
+          .boolean()
+          .describe("When true, include expired rustsec-auditor suppression comments in acceptedRisks and the Markdown report."),
+        includeInvalid: z
+          .boolean()
+          .describe("When true, include invalid rustsec-auditor suppression comments in acceptedRisks and the Markdown report."),
+        outputFormat: outputFormatSchema.describe("Set to json for structured JSON; set to markdown to include reportMarkdown text for display.")
+      }
+    },
+    async (input) => toCallToolResult(await rustListAcceptedRisks(input))
+  );
+
   return server;
 }
 
@@ -139,7 +164,7 @@ export async function startRustSecurityAuditorMcpServer(): Promise<void> {
   await server.connect(new StdioServerTransport());
 }
 
-function toCallToolResult(output: McpAuditToolOutput): CallToolResult {
+function toCallToolResult(output: McpToolOutput): CallToolResult {
   return {
     content: [
       {
