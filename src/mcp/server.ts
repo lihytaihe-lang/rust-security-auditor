@@ -15,6 +15,8 @@ import {
 import type { McpToolOutput } from "./types.js";
 
 const outputFormatSchema = z.enum(["json", "markdown"]);
+const pathModeSchema = z.enum(["relative", "absolute"]);
+const diffReportModeSchema = z.enum(["full", "compact"]);
 const readOnlyAnnotations = {
   readOnlyHint: true,
   destructiveHint: false,
@@ -43,6 +45,9 @@ export function createRustSecurityAuditorMcpServer(): McpServer {
         outputFormat: outputFormatSchema
           .optional()
           .describe("Omit or set to json for structured JSON; set to markdown to also include reportMarkdown text for display."),
+        pathMode: pathModeSchema
+          .optional()
+          .describe("Controls paths in reportMarkdown. Defaults to relative to avoid leaking local absolute paths."),
         includeSuppressed: z
           .boolean()
           .optional()
@@ -70,7 +75,10 @@ export function createRustSecurityAuditorMcpServer(): McpServer {
           .describe("When false, omit unsafe block findings that already have nearby SAFETY or Safety comments."),
         outputFormat: outputFormatSchema
           .optional()
-          .describe("Omit or set to json for structured JSON; set to markdown to also include reportMarkdown text for display.")
+          .describe("Omit or set to json for structured JSON; set to markdown to also include reportMarkdown text for display."),
+        pathMode: pathModeSchema
+          .optional()
+          .describe("Controls paths in reportMarkdown. Defaults to relative to avoid leaking local absolute paths.")
       }
     },
     async (input) => toCallToolResult(await rustAuditUnsafe(input))
@@ -90,7 +98,10 @@ export function createRustSecurityAuditorMcpServer(): McpServer {
           .describe("Absolute or relative local directory for a Rust Cargo project or workspace; it must contain at least one Cargo.toml."),
         outputFormat: outputFormatSchema
           .optional()
-          .describe("Omit or set to json for structured JSON; set to markdown to also include reportMarkdown text for display.")
+          .describe("Omit or set to json for structured JSON; set to markdown to also include reportMarkdown text for display."),
+        pathMode: pathModeSchema
+          .optional()
+          .describe("Controls paths in reportMarkdown. Defaults to relative to avoid leaking local absolute paths.")
       }
     },
     async (input) => toCallToolResult(await rustAuditDependencies(input))
@@ -124,9 +135,22 @@ export function createRustSecurityAuditorMcpServer(): McpServer {
           .boolean()
           .optional()
           .describe("When true, include findings in changed files that are not close to added lines."),
+        nearChangedLineWindow: z
+          .number()
+          .int()
+          .min(0)
+          .max(50)
+          .optional()
+          .describe("Line window for near_changed_lines classification. Defaults to 3."),
         outputFormat: outputFormatSchema
           .optional()
-          .describe("Omit or set to json for structured JSON; set to markdown to also include reportMarkdown text for display.")
+          .describe("Omit or set to json for structured JSON; set to markdown to also include reportMarkdown text for display."),
+        pathMode: pathModeSchema
+          .optional()
+          .describe("Controls paths in reportMarkdown. Defaults to relative for shareable PR comments."),
+        reportMode: diffReportModeSchema
+          .optional()
+          .describe("Controls reportMarkdown detail. Defaults to compact for Codex and PR comments; use full for complete details.")
       }
     },
     async (input) => toCallToolResult(await rustReviewCurrentDiff(input))
@@ -150,7 +174,10 @@ export function createRustSecurityAuditorMcpServer(): McpServer {
         includeInvalid: z
           .boolean()
           .describe("When true, include invalid rustsec-auditor suppression comments in acceptedRisks and the Markdown report."),
-        outputFormat: outputFormatSchema.describe("Set to json for structured JSON; set to markdown to include reportMarkdown text for display.")
+        outputFormat: outputFormatSchema.describe("Set to json for structured JSON; set to markdown to include reportMarkdown text for display."),
+        pathMode: pathModeSchema
+          .optional()
+          .describe("Controls paths in reportMarkdown. Defaults to relative to avoid leaking local absolute paths.")
       }
     },
     async (input) => toCallToolResult(await rustListAcceptedRisks(input))

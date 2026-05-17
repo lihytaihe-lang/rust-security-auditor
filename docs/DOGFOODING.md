@@ -204,7 +204,7 @@ Experience conclusion:
    - These are not exact duplicates, but the UX should present them as a grouped unsafe site.
 
 5. Diff review is the right daily workflow, but the near-line window is the biggest noise source.
-   - The 5-line window intentionally catches surrounding context, but it can surface untouched pre-existing findings near an append-only change.
+   - At the time of the initial dogfood run, the wider near-line window intentionally caught surrounding context, but it could surface untouched pre-existing findings near an append-only change.
    - The report does explain `near_changed_lines` and hidden pre-existing findings, which helps.
 
 6. Markdown reports include absolute project paths.
@@ -247,4 +247,18 @@ npm test
 ```
 
 - `npm run typecheck`: passed
-- `npm test`: passed, 41 tests passed
+- `npm test`: passed, 47 tests passed
+
+## Phase 10 Follow-up
+
+Phase 10 implemented the dogfood recommendations for daily diff review without adding ChatGPT App, SaaS, upload, deep-audit, release-gate, broad scanner-rule, or scanner-kernel work.
+
+Implemented polish:
+
+- `rust_review_current_diff` defaults Markdown to `pathMode: "relative"` so shareable reports do not include local absolute project paths. JSON still returns the resolved `projectPath`.
+- `reportMode` now defaults to `compact` for Codex / PR comments, with `full` available for changed-file lists, non-blocking notes, accepted/suppressed risk details, and full evidence.
+- `nearChangedLineWindow` defaults to `3` and is configurable. `near_changed_lines` now displays only medium-or-higher severity with medium/high confidence.
+- Lightweight Rust context extraction identifies approximate functions and unsafe-site ranges using text/brace heuristics. It is used only for diff review precision, grouping, and prompt context.
+- Nearby findings in a different function or unsafe site are downgraded to non-blocking context notes; unknown context is still shown with an explicit "near changed code, not necessarily introduced" note.
+- Markdown groups findings that share an unsafe site, such as a generic unsafe block plus a specific primitive finding. This is a UX grouping only; JSON findings remain separate.
+- `suggestedFixPrompt` now includes rule id, file/line, function context, diff relation, changed-line context, and the rule-specific suggested fix, and asks Codex to explain the invariant before editing.

@@ -38,11 +38,16 @@ Defaults for `rust_review_current_diff`:
 - With no refs and no `staged`, review `git diff` for unstaged working tree changes.
 - With `staged: true`, review `git diff --cached`.
 - With both `baseRef` and `headRef`, review `git diff baseRef..headRef`.
+- Use `pathMode: "relative"` by default when generating Markdown, especially for reports that may be pasted into PRs or shared outside the local machine.
+- Use `reportMode: "compact"` by default for Codex / PR comments; use `reportMode: "full"` only when the user asks for full evidence/details.
+- Use `nearChangedLineWindow: 3` by default. Lower it to `1` or `2` when near-line noise is too high.
 - By default, present only `introduced_by_diff` and `near_changed_lines`.
+- Treat `near_changed_lines` as contextual reminders near changed code, not proof that the diff introduced the finding.
 - Use `includePreExisting: true` only when the user asks to see historical risks in changed files.
 - Use `reviewDecision.status` as the primary commit/PR recommendation: `block`, `needs_attention`, or `pass`.
 - Use `enrichedFindings[].actionability.recommendedAction` and `suggestedFixPrompt` when the user asks what Codex should do next.
 - Use `suppressionSummary` and `suppressedFindings` to explain active, expired, and invalid accepted-risk suppressions.
+- Use `reviewGroups` / grouped Markdown as a UX grouping for the same unsafe site. Do not imply grouped findings are merged vulnerabilities.
 - Do not modify code automatically from `suggestedFixPrompt`; offer or run fixes only when the user explicitly asks.
 
 Explain that changed-line awareness improves PR focus, but the result is still heuristic scanner output, not full data-flow, control-flow, or taint analysis.
@@ -93,7 +98,7 @@ Before commit:
 
 - Block by default on `critical` or `high` findings marked `introduced_by_diff` when confidence is `high` or `medium`.
 - Treat `medium` findings marked `introduced_by_diff` as "needs developer confirmation".
-- Treat `near_changed_lines` `high` or `critical` findings as blockers when confidence is `high`; otherwise present nearby high/medium findings as manual-review targets because the diff may affect nearby invariants.
+- Treat `near_changed_lines` as context. Only escalate nearby high/critical findings when confidence is high and lightweight function/unsafe-site context still ties them to the changed area; otherwise present them as manual review or non-blocking notes.
 - Put low-confidence findings in manual review / accepted-risk flow, not in hard blockers.
 - Treat only low/info findings with non-low confidence as pass-level non-blocking notes.
 - Hide or summarize `pre_existing_in_changed_file` findings unless `includePreExisting: true` was requested.
@@ -139,7 +144,7 @@ Do not add, renew, or delete suppression comments unless the user explicitly ask
 Useful Codex prompts:
 
 ```text
-Please fix RSA-... at file:line by applying the smallest safe code change and adding focused tests if needed.
+Please review RSA-... at file:line inside function name. First explain the safety invariant and repair strategy, then apply the smallest safe code change and add focused tests if the finding is valid.
 ```
 
 ```text

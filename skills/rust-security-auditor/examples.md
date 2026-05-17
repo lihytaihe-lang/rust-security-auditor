@@ -14,7 +14,9 @@ Expected behavior:
 
 - Call `rust_review_current_diff`.
 - Use the current local Rust project directory as `projectPath`.
+- For shareable Markdown, use `pathMode: "relative"` and the default `reportMode: "compact"`.
 - Review findings marked `introduced_by_diff` or `near_changed_lines`.
+- Explain that `near_changed_lines` is nearby context, not necessarily introduced by the current diff.
 - Mention hidden `pre_existing_in_changed_file` counts when present, and offer `includePreExisting: true` only if the user wants historical risks in changed files.
 - Prioritize `critical`, `high`, and `medium` findings.
 - Use `reviewDecision.status` as the commit recommendation.
@@ -38,7 +40,7 @@ Manual review needed:
 - Confirm whether this command can be influenced by environment variables, workspace files, or user input.
 
 Suggested Codex fix prompt:
-- Please fix RSA-BUILD-COMMAND at build.rs:4 by using absolute tool paths or allowlisted commands, validating arguments, and avoiding untrusted environment values.
+- Please review RSA-BUILD-COMMAND at build.rs:4 inside function main. This finding appears introduced by the current diff. First explain the safety invariant and repair strategy, then use absolute tool paths or allowlisted commands, validate arguments, and avoid passing untrusted environment values to the process.
 
 Commit recommendation:
 - Do not commit yet. Fix or explicitly accept the high-severity build-script risk first.
@@ -50,6 +52,8 @@ Tool-output cues to use:
 - `enrichedFindings[].actionability.recommendedAction`
 - `enrichedFindings[].actionability.suggestedFixPrompt`
 - `nearestChangedLine` and `distance`
+- `functionName`, `contextAssessment`, and unsafe-site grouping when present
+- `reviewGroups[]` for grouped unsafe-site presentation
 - `reviewDecision.status`, `reason`, and `safeToCommit`
 - `diffReview.hiddenPreExistingCount`
 - `summary.blockingCount`, `manualReviewCount`, and `nonBlockingCount`
@@ -173,7 +177,7 @@ Expected behavior:
 - Call `rust_review_current_diff`.
 - Treat `critical` and `high` findings marked `introduced_by_diff` as commit blockers when confidence is not low.
 - Treat `medium` findings marked `introduced_by_diff` as context-dependent.
-- Treat `near_changed_lines` findings as invariant review targets.
+- Treat `near_changed_lines` findings as nearby context, not proof that the diff introduced them. If the tool marks a nearby finding as a different function/unsafe site, keep it non-blocking unless project policy says otherwise.
 - Treat low-confidence findings as manual-review / accepted-risk items, not confirmed vulnerabilities.
 - Treat low/info findings as non-blocking notes unless policy requires more.
 - Keep the output scoped to security, not style.
@@ -224,7 +228,7 @@ Accepted / suppressed risks:
 - 1 invalid suppression: RSA-UNSAFE-BLOCK at src/lib.rs:73 is ignored because the required reason after `--` is missing.
 
 Suggested Codex prompts:
-- Please fix RSA-... at file:line by applying the smallest safe code change.
+- Please review RSA-... at file:line inside function name. First explain the invariant, then apply the smallest safe code change if the finding is valid.
 - If this risk is intentional, add a rustsec-auditor suppression comment with a clear reason, owner, and ticket.
 
 Commit recommendation:

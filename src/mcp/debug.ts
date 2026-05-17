@@ -19,7 +19,7 @@ export async function runDebugTool(argv: readonly string[] = process.argv.slice(
 }
 
 function parseArgs(args: readonly string[]): RustAuditToolInput {
-  const input: Record<string, string | boolean> = {};
+  const input: Record<string, string | boolean | number> = {};
 
   for (let index = 0; index < args.length; index += 1) {
     const current = args[index];
@@ -37,7 +37,7 @@ function parseArgs(args: readonly string[]): RustAuditToolInput {
     }
 
     if (next !== undefined && !next.startsWith("--")) {
-      input[key] = next;
+      input[key] = key === "nearChangedLineWindow" ? Number(next) : next;
       index += 1;
       continue;
     }
@@ -60,7 +60,7 @@ Tools:
   rust_audit_project [--includeSuppressed true]
   rust_audit_unsafe [--includeDocumentedUnsafe false]
   rust_audit_dependencies
-  rust_review_current_diff [--baseRef <ref>] [--headRef <ref>] [--staged true] [--includePreExisting true]
+  rust_review_current_diff [--baseRef <ref>] [--headRef <ref>] [--staged true] [--includePreExisting true] [--nearChangedLineWindow 3] [--reportMode compact|full] [--pathMode relative|absolute]
   rust_list_accepted_risks --includeExpired true --includeInvalid true [--outputFormat markdown]
 `);
 }

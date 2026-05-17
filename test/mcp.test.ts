@@ -242,9 +242,153 @@ describe("MCP audit tools", () => {
       assert.equal(output.reviewDecision?.safeToCommit, false);
       assert.match(output.reportMarkdown ?? "", /## Decision/);
       assert.match(output.reportMarkdown ?? "", /## Needs Manual Review/);
-      assert.match(output.reportMarkdown ?? "", /## Accepted \/ Suppressed Risks/);
       assert.match(output.reportMarkdown ?? "", /Hidden pre-existing findings/);
       assert.match(output.reportMarkdown ?? "", /NEEDS ATTENTION/);
+      assert.doesNotMatch(output.reportMarkdown ?? "", new RegExp(escapeRegExp(repoPath)));
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rust_review_current_diff keeps relative paths in Markdown by default", async () => {
+    const { tempRoot, repoPath } = await createDiffReviewRepo();
+
+    try {
+      await writeFile(join(repoPath, "src/lib.rs"), changedLineAwareLibSource(), "utf8");
+
+      const output = await rustReviewCurrentDiff({
+        projectPath: repoPath,
+        outputFormat: "markdown",
+        pathMode: "relative"
+      });
+
+      assert.equal(output.error, undefined);
+      assert.ok(output.projectPath.endsWith("/repo"));
+      assert.match(output.reportMarkdown ?? "", /- Scope: \./);
+      assert.match(output.reportMarkdown ?? "", /src\/lib\.rs/);
+      assert.doesNotMatch(output.reportMarkdown ?? "", new RegExp(escapeRegExp(repoPath)));
+      assert.doesNotMatch(output.reportMarkdown ?? "", new RegExp(escapeRegExp(output.projectPath)));
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rust_review_current_diff applies nearChangedLineWindow", async () => {
+    const { tempRoot, repoPath } = await createDiffReviewRepo();
+
+    try {
+      await writeFile(join(repoPath, "src/lib.rs"), changedLineAwareLibSource(), "utf8");
+
+      const output = await rustReviewCurrentDiff({
+        projectPath: repoPath,
+        nearChangedLineWindow: 1
+      });
+
+      assert.equal(output.error, undefined);
+      assert.equal(output.diffReview?.changedLineWindow, 1);
+      assert.equal(output.diffReview?.relationCounts.near_changed_lines, 0);
+      assert.equal(output.enrichedFindings?.some((item) => item.diffContext.relation === "near_changed_lines"), false);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("near_changed_lines in a different function stays non-blocking", async () => {
+    const { tempRoot, repoPath } = await createDiffReviewRepo();
+
+    try {
+      await writeFile(join(repoPath, "build.rs"), nearbyLegacyCommandBuildScript(), "utf8");
+      await runShellCommandOrThrow("git", ["add", "build.rs"], { cwd: repoPath });
+      await runShellCommandOrThrow("git", ["commit", "-m", "add legacy build script"], { cwd: repoPath });
+      await writeFile(join(repoPath, "build.rs"), changedNearbyDifferentFunctionBuildScript(), "utf8");
+
+      const output = await rustReviewCurrentDiff({
+        projectPath: repoPath,
+        outputFormat: "markdown"
+      });
+
+      const commandFinding = output.enrichedFindings?.find((item) => item.finding.ruleId === "RSA-BUILD-COMMAND");
+      assert.equal(output.error, undefined);
+      assert.equal(commandFinding?.diffContext.relation, "near_changed_lines");
+      assert.equal(commandFinding?.diffContext.contextAssessment, "different_function_or_unsafe_site");
+      assert.equal(commandFinding?.actionability?.recommendedAction, "monitor");
+      assert.equal(output.reviewDecision?.status, "pass");
+      assert.deepEqual(output.reviewDecision?.blockingFindingIds, []);
+      assert.doesNotMatch(output.reportMarkdown ?? "", /## Blocking Issues/);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("groups generic and specific findings at the same unsafe site", async () => {
+    const { tempRoot, repoPath } = await createDiffReviewRepo();
+
+    try {
+      await writeFile(join(repoPath, "src/lib.rs"), groupedUnsafeSiteLibSource(), "utf8");
+
+      const output = await rustReviewCurrentDiff({
+        projectPath: repoPath,
+        outputFormat: "markdown"
+      });
+
+      const group = output.reviewGroups?.find(
+        (item) => item.ruleIds.includes("RSA-UNSAFE-BLOCK") && item.ruleIds.includes("RSA-UNSAFE-TRANSMUTE")
+      );
+
+      assert.equal(output.error, undefined);
+      assert.ok(group);
+      assert.ok(group.unsafeSite);
+      assert.match(output.reportMarkdown ?? "", /Unsafe site at src\/lib\.rs/);
+      assert.match(output.reportMarkdown ?? "", /Generic unsafe block/);
+      assert.match(output.reportMarkdown ?? "", /Specific primitive: transmute/);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("suggestedFixPrompt includes rule, location, function, and relation context", async () => {
+    const { tempRoot, repoPath } = await createDiffReviewRepo();
+
+    try {
+      await writeFile(join(repoPath, "src/lib.rs"), changedLineAwareLibSource(), "utf8");
+
+      const output = await rustReviewCurrentDiff({
+        projectPath: repoPath,
+        outputFormat: "markdown"
+      });
+      const introduced = output.enrichedFindings?.find(
+        (item) => item.finding.ruleId === "RSA-UNSAFE-FN" && item.diffContext.relation === "introduced_by_diff"
+      );
+      const prompt = introduced?.actionability?.suggestedFixPrompt ?? "";
+
+      assert.match(prompt, /RSA-UNSAFE-FN/);
+      assert.match(prompt, /src\/lib\.rs:\d+/);
+      assert.match(prompt, /inside function introduced/);
+      assert.match(prompt, /introduced by the current diff/);
+      assert.match(prompt, /First explain/);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("full current diff report includes complete details", async () => {
+    const { tempRoot, repoPath } = await createDiffReviewRepo();
+
+    try {
+      await writeFile(join(repoPath, "src/lib.rs"), changedLineAwareLibSource(), "utf8");
+
+      const output = await rustReviewCurrentDiff({
+        projectPath: repoPath,
+        outputFormat: "markdown",
+        reportMode: "full"
+      });
+
+      assert.equal(output.error, undefined);
+      assert.match(output.reportMarkdown ?? "", /## Changed Files/);
+      assert.match(output.reportMarkdown ?? "", /## Non-blocking Notes/);
+      assert.match(output.reportMarkdown ?? "", /## Accepted \/ Suppressed Risks/);
+      assert.match(output.reportMarkdown ?? "", /#### Evidence/);
+      assert.match(output.reportMarkdown ?? "", /#### Recommendation/);
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
@@ -283,7 +427,7 @@ describe("MCP audit tools", () => {
       assert.match(output.reportMarkdown ?? "", /## Decision/);
       assert.match(output.reportMarkdown ?? "", /## Blocking Issues/);
       assert.match(output.reportMarkdown ?? "", /## Suggested Codex Fix Prompts/);
-      assert.match(output.reportMarkdown ?? "", /Please fix RSA-BUILD-COMMAND/);
+      assert.match(output.reportMarkdown ?? "", /Please review RSA-BUILD-COMMAND/);
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
@@ -345,6 +489,7 @@ describe("MCP audit tools", () => {
 
       const output = await rustReviewCurrentDiff({
         projectPath: repoPath,
+        reportMode: "full",
         outputFormat: "markdown"
       });
 
@@ -401,6 +546,10 @@ describe("MCP audit tools", () => {
       assert.equal(output.summary.manualReviewCount, 0);
       assert.equal(output.summary.nonBlockingCount, 1);
       assert.equal(output.enrichedFindings?.[0]?.actionability?.recommendedAction, "monitor");
+      assert.doesNotMatch(output.reportMarkdown ?? "", /## Blocking Issues/);
+      assert.doesNotMatch(output.reportMarkdown ?? "", /## Needs Manual Review/);
+      assert.doesNotMatch(output.reportMarkdown ?? "", /## Non-blocking Notes/);
+      assert.doesNotMatch(output.reportMarkdown ?? "", /None\./);
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
@@ -596,6 +745,41 @@ function changedLineAwareLibSource(): string {
   return `${lines.join("\n")}\n`;
 }
 
+function groupedUnsafeSiteLibSource(): string {
+  const lines = initialDiffReviewLibSource().trimEnd().split("\n");
+  lines.push(
+    "",
+    "pub fn grouped_transmute(value: u32) -> u64 {",
+    "    unsafe { std::mem::transmute(value) }",
+    "}"
+  );
+  return `${lines.join("\n")}\n`;
+}
+
+function nearbyLegacyCommandBuildScript(): string {
+  return `${[
+    "use std::process::Command;",
+    "fn legacy() {",
+    "    let _ = Command::new(\"sh\").arg(\"-c\").arg(\"echo legacy\").status();",
+    "}",
+    "fn touched() {",
+    "    let value = 1;",
+    "}"
+  ].join("\n")}\n`;
+}
+
+function changedNearbyDifferentFunctionBuildScript(): string {
+  return `${[
+    "use std::process::Command;",
+    "fn legacy() {",
+    "    let _ = Command::new(\"sh\").arg(\"-c\").arg(\"echo legacy\").status();",
+    "}",
+    "fn touched() {",
+    "    let value = 2;",
+    "}"
+  ].join("\n")}\n`;
+}
+
 function suppressedDiffReviewLibSource(): string {
   const lines = initialDiffReviewLibSource().trimEnd().split("\n");
   lines.push(
@@ -639,6 +823,10 @@ function testFinding(input: {
     riskScenario: "The decision logic could overstate a low-confidence finding.",
     suggestedFix: "Confirm the finding before changing code."
   };
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 async function withMcpClient(callback: (client: Client) => Promise<void>): Promise<void> {

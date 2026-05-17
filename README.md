@@ -92,7 +92,10 @@ The MCP client sends tool calls with local project paths. Example arguments:
   "headRef": "HEAD",
   "staged": false,
   "includePreExisting": false,
-  "outputFormat": "json"
+  "nearChangedLineWindow": 3,
+  "outputFormat": "markdown",
+  "pathMode": "relative",
+  "reportMode": "compact"
 }
 ```
 
@@ -102,7 +105,8 @@ The MCP client sends tool calls with local project paths. Example arguments:
 {
   "projectPath": "/absolute/path/to/rust/project",
   "includeDocumentedUnsafe": true,
-  "outputFormat": "json"
+  "outputFormat": "json",
+  "pathMode": "relative"
 }
 ```
 
@@ -111,7 +115,8 @@ The MCP client sends tool calls with local project paths. Example arguments:
 ```json
 {
   "projectPath": "/absolute/path/to/rust/project",
-  "outputFormat": "json"
+  "outputFormat": "json",
+  "pathMode": "relative"
 }
 ```
 
@@ -121,6 +126,7 @@ The MCP client sends tool calls with local project paths. Example arguments:
 {
   "projectPath": "/absolute/path/to/rust/project",
   "outputFormat": "markdown",
+  "pathMode": "relative",
   "includeSuppressed": false
 }
 ```
@@ -132,7 +138,8 @@ The MCP client sends tool calls with local project paths. Example arguments:
   "projectPath": "/absolute/path/to/rust/project",
   "includeExpired": true,
   "includeInvalid": true,
-  "outputFormat": "markdown"
+  "outputFormat": "markdown",
+  "pathMode": "relative"
 }
 ```
 
@@ -144,8 +151,8 @@ The supported preview path is MCP client usage. For local debugging, the reposit
 npm run mcp:call -- rust_audit_project --projectPath test/fixtures/vulnerable-rust-project --outputFormat markdown
 npm run mcp:call -- rust_audit_unsafe --projectPath test/fixtures/vulnerable-rust-project
 npm run mcp:call -- rust_audit_dependencies --projectPath test/fixtures/dependency-risk
-npm run mcp:call -- rust_review_current_diff --projectPath /absolute/path/to/rust/project
-npm run mcp:call -- rust_review_current_diff --projectPath /absolute/path/to/rust/project --staged true
+npm run mcp:call -- rust_review_current_diff --projectPath /absolute/path/to/rust/project --outputFormat markdown --pathMode relative --reportMode compact
+npm run mcp:call -- rust_review_current_diff --projectPath /absolute/path/to/rust/project --staged true --nearChangedLineWindow 2
 npm run mcp:call -- rust_list_accepted_risks --projectPath test/fixtures/suppressed-rust-project --includeExpired true --includeInvalid true --outputFormat markdown
 ```
 
@@ -197,14 +204,22 @@ The Skill documentation lives in:
 Diff findings are classified as:
 
 - `introduced_by_diff`: the finding starts on an added line.
-- `near_changed_lines`: the finding is near an added line, using the default 5-line window.
+- `near_changed_lines`: the finding is near an added line, using the default 3-line window. This is a context reminder, not proof that the current diff introduced the finding.
 - `pre_existing_in_changed_file`: the finding is in a changed file but outside the changed-line window.
 
-By default, current diff review returns only `introduced_by_diff` and `near_changed_lines`. Set `includePreExisting: true` to show historical findings in changed files.
+By default, current diff review returns only `introduced_by_diff` and filtered `near_changed_lines`. Near-changed findings are shown only for medium-or-higher severity with medium/high confidence. If lightweight function or unsafe-site context shows the nearby finding belongs to a different function/site, it is downgraded to a non-blocking note. Set `includePreExisting: true` to show historical findings in changed files.
+
+Diff review report options:
+
+- `pathMode`: defaults to `relative`. Use `relative` for PR comments or shared reports so Markdown does not leak local absolute paths. JSON still keeps the resolved `projectPath`.
+- `reportMode`: defaults to `compact`. Compact mode is intended for Codex and PR comments; use `full` when you need changed-file lists, non-blocking notes, accepted/suppressed risk details, and full evidence blocks.
+- `nearChangedLineWindow`: defaults to `3`; reduce it to `1` or `2` when nearby pre-existing findings are too noisy, or increase it only when surrounding invariants matter.
+
+When multiple findings point at the same unsafe site, Markdown uses a grouped view. For example, a generic `RSA-UNSAFE-BLOCK` and a specific `RSA-UNSAFE-TRANSMUTE` on the same unsafe block are displayed under one unsafe site. This is a UX grouping only; the JSON `findings` array remains unchanged and each rule still represents its own review signal.
 
 `rust_review_current_diff` also returns a `reviewDecision`:
 
-- `block`: introduced critical/high findings with non-low confidence, or nearby high-confidence critical/high findings.
+- `block`: introduced critical/high findings with non-low confidence, or nearby high-confidence critical/high findings that remain in the same lightweight function/unsafe-site context.
 - `needs_attention`: medium findings, nearby findings, low-confidence findings, expired suppressions, or invalid suppressions need human review.
 - `pass`: no blocking or manual-review findings were reported.
 

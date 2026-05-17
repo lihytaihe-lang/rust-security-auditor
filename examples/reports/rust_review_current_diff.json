@@ -30,7 +30,9 @@
       "riskLevel": "needs_attention",
       "introducedFindingCount": 2,
       "nearChangedFindingCount": 0,
-      "preExistingFindingCount": 2,
+      "preExistingFindingCount": 1,
+      "hiddenNearChangedFindingCount": 0,
+      "unsafeSiteGroupCount": 1,
       "blockingCount": 0,
       "manualReviewCount": 2,
       "nonBlockingCount": 0
@@ -40,47 +42,18 @@
       "expiredSuppressionCount": 0,
       "invalidSuppressionCount": 0
     },
-    "reviewDecision": {
-      "status": "needs_attention",
-      "reason": "No hard blockers were found, but the diff has medium-severity, nearby, or low-confidence findings that need human review before commit.",
-      "blockingFindingIds": [],
-      "needsManualReviewFindingIds": [
-        "RSA-UNSAFE-FN-EXAMPLE",
-        "RSA-UNSAFE-BLOCK-EXAMPLE"
-      ],
-      "safeToCommit": false
-    },
     "findings": [
       {
-        "id": "RSA-UNSAFE-FN-EXAMPLE",
-        "ruleId": "RSA-UNSAFE-FN",
-        "title": "Unsafe function requires a caller safety contract",
-        "severity": "medium",
-        "confidence": "high",
-        "category": "unsafe",
-        "file": "src/lib.rs",
-        "startLine": 42,
-        "evidence": [
-          "Line 42: pub unsafe fn introduced(ptr: *const u8) -> u8 {"
-        ],
-        "whyItMatters": "An unsafe function shifts memory-safety obligations to callers, so the required preconditions must be explicit and testable.",
-        "riskScenario": "A caller can pass an invalid pointer, alias mutable state, or violate lifetime requirements and trigger undefined behavior.",
-        "suggestedFix": "Add a precise Safety contract, validate what can be checked at runtime, and keep the unsafe body as small as possible.",
-        "suggestedTests": [
-          "Cover rejected invalid inputs and valid boundary cases for the documented Safety contract."
-        ]
-      },
-      {
-        "id": "RSA-UNSAFE-BLOCK-EXAMPLE",
+        "id": "RSA-UNSAFE-BLOCK-src-lib-rs-42",
         "ruleId": "RSA-UNSAFE-BLOCK",
         "title": "Unsafe block needs local invariant review",
         "severity": "medium",
         "confidence": "high",
         "category": "unsafe",
         "file": "src/lib.rs",
-        "startLine": 43,
+        "startLine": 42,
         "evidence": [
-          "Line 43: unsafe { *ptr }"
+          "Line 42: unsafe { std::mem::transmute(value) }"
         ],
         "whyItMatters": "Unsafe blocks can dereference raw pointers, call unsafe functions, or rely on invariants outside Rust's borrow checker.",
         "riskScenario": "A future change weakens the invariant around the unsafe operation and introduces undefined behavior without a compiler error.",
@@ -88,11 +61,26 @@
         "suggestedTests": [
           "Add boundary tests that would fail if the unsafe preconditions are violated."
         ]
+      },
+      {
+        "id": "RSA-UNSAFE-TRANSMUTE-src-lib-rs-42",
+        "ruleId": "RSA-UNSAFE-TRANSMUTE",
+        "title": "transmute requires layout and validity review",
+        "severity": "medium",
+        "confidence": "high",
+        "category": "unsafe",
+        "file": "src/lib.rs",
+        "startLine": 42,
+        "evidence": [
+          "Line 42: unsafe { std::mem::transmute(value) }"
+        ],
+        "whyItMatters": "transmute depends on layout, size, alignment, and value validity assumptions that Rust cannot check.",
+        "riskScenario": "A value is reinterpreted as a type with stricter validity rules, creating invalid values or undefined behavior.",
+        "suggestedFix": "Prefer explicit conversion APIs, bytemuck-style checked casts, or a small wrapper that verifies layout and validity assumptions.",
+        "suggestedTests": [
+          "Test representative bit patterns and layout assumptions for the conversion boundary."
+        ]
       }
-    ],
-    "reportMarkdown": "# Rust Security Review: Current Diff\n\n## Decision\n\nNEEDS ATTENTION\n\n- Safe to commit: No\n- Reason: No hard blockers were found, but the diff has medium-severity, nearby, or low-confidence findings that need human review before commit.\n- Blocking findings: 0\n- Manual review findings: 2\n\n## Summary\n\n- Introduced risks: 2\n- Near changed lines: 0\n- Pre-existing risks shown: 0\n- Suppressed: 0\n- Expired suppressions: 0\n- Invalid suppressions: 0\n- Scope: <temp-git-fixture>/repo\n- Diff mode: working_tree\n- Changed files: 1\n- Changed-line window: 5\n- Hidden pre-existing findings: 2\n\n## Blocking Issues\n\nNone.\n\n## Needs Manual Review\n\n### RSA-UNSAFE-FN: Unsafe function requires a caller safety contract\n\n- Severity: Medium\n- Confidence: High\n- Rule: RSA-UNSAFE-FN\n- Location: `src/lib.rs:42`\n- Diff relation: introduced_by_diff\n- Recommended action: manual_review\n- Can Codex fix: No\n\n## Non-blocking Notes\n\nNone.\n\n## Accepted / Suppressed Risks\n\n- Suppressed count: 0\n- Expired suppression count: 0\n- Invalid suppression count: 0\n\nNone.\n\n## Suggested Codex Fix Prompts\n\n- Please review RSA-UNSAFE-FN at src/lib.rs:42, confirm whether the reported invariant is real, and then propose the smallest safe fix if it is valid.\n- Please review RSA-UNSAFE-BLOCK at src/lib.rs:43, confirm whether the reported invariant is real, and then propose the smallest safe fix if it is valid.\n\n## Limitations\n\n- Heuristic static scan.\n- Not full AST/data-flow/taint analysis.\n- Diff relation based on changed lines.\n",
-    "warnings": [
-      "rust_review_current_diff is changed-line aware, but it is still heuristic scanner output rather than full data-flow or taint analysis."
     ],
     "diffAffectedFiles": [
       "src/lib.rs"
@@ -108,22 +96,21 @@
               "oldStart": 38,
               "oldLines": 3,
               "newStart": 38,
-              "newLines": 7,
+              "newLines": 6,
               "addedLines": [
+                40,
+                41,
                 42,
-                43,
-                44
+                43
               ],
               "removedLines": [],
               "contextLines": [
                 38,
-                39,
-                40,
-                41
+                39
               ],
               "contextRange": [
                 38,
-                44
+                43
               ]
             }
           ]
@@ -132,7 +119,9 @@
     },
     "diffReview": {
       "mode": "working_tree",
-      "changedLineWindow": 5,
+      "changedLineWindow": 3,
+      "reportMode": "compact",
+      "pathMode": "relative",
       "includePreExisting": false,
       "includedRelations": [
         "introduced_by_diff",
@@ -141,55 +130,61 @@
       "relationCounts": {
         "introduced_by_diff": 2,
         "near_changed_lines": 0,
-        "pre_existing_in_changed_file": 2
+        "pre_existing_in_changed_file": 1
       },
-      "hiddenPreExistingCount": 2,
+      "hiddenPreExistingCount": 1,
+      "hiddenNearChangedCount": 0,
+      "unsafeSiteGroupCount": 1,
       "conclusion": "Needs attention"
     },
+    "reviewDecision": {
+      "status": "needs_attention",
+      "reason": "No hard blockers were found, but the diff has medium-severity, nearby, or low-confidence findings that need human review before commit.",
+      "blockingFindingIds": [],
+      "needsManualReviewFindingIds": [
+        "RSA-UNSAFE-BLOCK-src-lib-rs-42",
+        "RSA-UNSAFE-TRANSMUTE-src-lib-rs-42"
+      ],
+      "safeToCommit": false
+    },
+    "reviewGroups": [
+      {
+        "id": "unsafe:src/lib.rs:unsafe_block:42:42",
+        "title": "Unsafe site at src/lib.rs:42",
+        "file": "src/lib.rs",
+        "startLine": 42,
+        "endLine": 42,
+        "functionName": "dogfood_added",
+        "unsafeSite": {
+          "kind": "unsafe_block",
+          "startLine": 42,
+          "endLine": 42,
+          "functionName": "dogfood_added"
+        },
+        "relation": "introduced_by_diff",
+        "findingIds": [
+          "RSA-UNSAFE-BLOCK-src-lib-rs-42",
+          "RSA-UNSAFE-TRANSMUTE-src-lib-rs-42"
+        ],
+        "ruleIds": [
+          "RSA-UNSAFE-BLOCK",
+          "RSA-UNSAFE-TRANSMUTE"
+        ]
+      }
+    ],
     "enrichedFindings": [
       {
         "finding": {
-          "id": "RSA-UNSAFE-FN-EXAMPLE",
-          "ruleId": "RSA-UNSAFE-FN",
-          "title": "Unsafe function requires a caller safety contract",
-          "severity": "medium",
-          "confidence": "high",
-          "category": "unsafe",
-          "file": "src/lib.rs",
-          "startLine": 42,
-          "evidence": [
-            "Line 42: pub unsafe fn introduced(ptr: *const u8) -> u8 {"
-          ],
-          "whyItMatters": "An unsafe function shifts memory-safety obligations to callers, so the required preconditions must be explicit and testable.",
-          "riskScenario": "A caller can pass an invalid pointer, alias mutable state, or violate lifetime requirements and trigger undefined behavior.",
-          "suggestedFix": "Add a precise Safety contract, validate what can be checked at runtime, and keep the unsafe body as small as possible.",
-          "suggestedTests": [
-            "Cover rejected invalid inputs and valid boundary cases for the documented Safety contract."
-          ]
-        },
-        "diffContext": {
-          "relation": "introduced_by_diff",
-          "nearestChangedLine": 42,
-          "distance": 0
-        },
-        "actionability": {
-          "recommendedAction": "manual_review",
-          "canCodexFix": false,
-          "suggestedFixPrompt": "Please review RSA-UNSAFE-FN at src/lib.rs:42, confirm whether the reported invariant is real, and then propose the smallest safe fix if it is valid."
-        }
-      },
-      {
-        "finding": {
-          "id": "RSA-UNSAFE-BLOCK-EXAMPLE",
+          "id": "RSA-UNSAFE-BLOCK-src-lib-rs-42",
           "ruleId": "RSA-UNSAFE-BLOCK",
           "title": "Unsafe block needs local invariant review",
           "severity": "medium",
           "confidence": "high",
           "category": "unsafe",
           "file": "src/lib.rs",
-          "startLine": 43,
+          "startLine": 42,
           "evidence": [
-            "Line 43: unsafe { *ptr }"
+            "Line 42: unsafe { std::mem::transmute(value) }"
           ],
           "whyItMatters": "Unsafe blocks can dereference raw pointers, call unsafe functions, or rely on invariants outside Rust's borrow checker.",
           "riskScenario": "A future change weakens the invariant around the unsafe operation and introduces undefined behavior without a compiler error.",
@@ -200,15 +195,91 @@
         },
         "diffContext": {
           "relation": "introduced_by_diff",
-          "nearestChangedLine": 43,
-          "distance": 0
+          "nearestChangedLine": 42,
+          "distance": 0,
+          "functionName": "dogfood_added",
+          "functionStartLine": 40,
+          "functionEndLine": 43,
+          "nearestChangedFunctionName": "dogfood_added",
+          "nearestChangedFunctionStartLine": 40,
+          "nearestChangedFunctionEndLine": 43,
+          "sameFunctionAsNearestChange": true,
+          "unsafeSite": {
+            "kind": "unsafe_block",
+            "startLine": 42,
+            "endLine": 42,
+            "functionName": "dogfood_added"
+          },
+          "nearestChangedUnsafeSite": {
+            "kind": "unsafe_block",
+            "startLine": 42,
+            "endLine": 42,
+            "functionName": "dogfood_added"
+          },
+          "sameUnsafeSiteAsNearestChange": true
         },
         "actionability": {
           "recommendedAction": "manual_review",
           "canCodexFix": false,
-          "suggestedFixPrompt": "Please review RSA-UNSAFE-BLOCK at src/lib.rs:43, confirm whether the reported invariant is real, and then propose the smallest safe fix if it is valid."
+          "suggestedFixPrompt": "Please review RSA-UNSAFE-BLOCK at src/lib.rs:42 inside function dogfood_added. This finding appears introduced by the current diff. Context: nearest changed line 42, changed-line function dogfood_added. First explain whether the reported invariant is real, then propose the smallest safe fix if it is valid: Keep the block minimal, state the local invariant next to the operation, and wrap it in a safe API when possible."
+        }
+      },
+      {
+        "finding": {
+          "id": "RSA-UNSAFE-TRANSMUTE-src-lib-rs-42",
+          "ruleId": "RSA-UNSAFE-TRANSMUTE",
+          "title": "transmute requires layout and validity review",
+          "severity": "medium",
+          "confidence": "high",
+          "category": "unsafe",
+          "file": "src/lib.rs",
+          "startLine": 42,
+          "evidence": [
+            "Line 42: unsafe { std::mem::transmute(value) }"
+          ],
+          "whyItMatters": "transmute depends on layout, size, alignment, and value validity assumptions that Rust cannot check.",
+          "riskScenario": "A value is reinterpreted as a type with stricter validity rules, creating invalid values or undefined behavior.",
+          "suggestedFix": "Prefer explicit conversion APIs, bytemuck-style checked casts, or a small wrapper that verifies layout and validity assumptions.",
+          "suggestedTests": [
+            "Test representative bit patterns and layout assumptions for the conversion boundary."
+          ]
+        },
+        "diffContext": {
+          "relation": "introduced_by_diff",
+          "nearestChangedLine": 42,
+          "distance": 0,
+          "functionName": "dogfood_added",
+          "functionStartLine": 40,
+          "functionEndLine": 43,
+          "nearestChangedFunctionName": "dogfood_added",
+          "nearestChangedFunctionStartLine": 40,
+          "nearestChangedFunctionEndLine": 43,
+          "sameFunctionAsNearestChange": true,
+          "unsafeSite": {
+            "kind": "unsafe_block",
+            "startLine": 42,
+            "endLine": 42,
+            "functionName": "dogfood_added"
+          },
+          "nearestChangedUnsafeSite": {
+            "kind": "unsafe_block",
+            "startLine": 42,
+            "endLine": 42,
+            "functionName": "dogfood_added"
+          },
+          "sameUnsafeSiteAsNearestChange": true
+        },
+        "actionability": {
+          "recommendedAction": "manual_review",
+          "canCodexFix": false,
+          "suggestedFixPrompt": "Please review RSA-UNSAFE-TRANSMUTE at src/lib.rs:42 inside function dogfood_added. This finding appears introduced by the current diff. Context: nearest changed line 42, changed-line function dogfood_added. First explain whether the reported invariant is real, then propose the smallest safe fix if it is valid: Prefer explicit conversion APIs, bytemuck-style checked casts, or a small wrapper that verifies layout and validity assumptions."
         }
       }
+    ],
+    "reportMarkdown": "# Rust Security Review: Current Diff\n\n## Decision\n\nNEEDS ATTENTION\n\n- Safe to commit: No\n- Reason: No hard blockers were found, but the diff has medium-severity, nearby, or low-confidence findings that need human review before commit.\n- Blocking findings: 0\n- Manual review findings: 2\n\n## Summary\n\n- Introduced findings: 2\n- Near changed findings: 0\n- Hidden pre-existing findings: 1\n- Unsafe sites grouped: 1\n- Suppressed: 0\n- Expired suppressions: 0\n- Invalid suppressions: 0\n- Scope: .\n- Diff mode: working_tree\n- Report mode: compact\n- Changed files: 1\n- Changed-line window: 3\n- near_changed_lines means the finding is near changed code, not necessarily introduced by the current diff.\n\n## Needs Manual Review\n\n### Unsafe site at src/lib.rs:42\n\n- Location: `src/lib.rs:42`\n- Function/context: `dogfood_added`\n- Diff relation: introduced_by_diff\n- Recommended actions: manual_review\n- Nearest changed line: 42\n- Findings:\n  - Generic unsafe block (RSA-UNSAFE-BLOCK, medium/high)\n  - Specific primitive: transmute (RSA-UNSAFE-TRANSMUTE, medium/high)\n\n## Suggested Codex Fix Prompts\n\n- Please review RSA-UNSAFE-BLOCK at src/lib.rs:42 inside function dogfood_added. This finding appears introduced by the current diff. Context: nearest changed line 42, changed-line function dogfood_added. First explain whether the reported invariant is real, then propose the smallest safe fix if it is valid: Keep the block minimal, state the local invariant next to the operation, and wrap it in a safe API when possible.\n- Please review RSA-UNSAFE-TRANSMUTE at src/lib.rs:42 inside function dogfood_added. This finding appears introduced by the current diff. Context: nearest changed line 42, changed-line function dogfood_added. First explain whether the reported invariant is real, then propose the smallest safe fix if it is valid: Prefer explicit conversion APIs, bytemuck-style checked casts, or a small wrapper that verifies layout and validity assumptions.\n\n## Limitations\n\n- Heuristic static scan.\n- Minimal Rust context uses text and brace heuristics, not full AST/data-flow/taint analysis.\n- Diff relation is based on added lines and lightweight function/unsafe-site context.\n- rust_review_current_diff is changed-line aware, but it is still heuristic scanner output rather than full data-flow or taint analysis.\n- near_changed_lines findings are contextual reminders near changed code; they are not necessarily introduced by the current diff.\n",
+    "warnings": [
+      "rust_review_current_diff is changed-line aware, but it is still heuristic scanner output rather than full data-flow or taint analysis.",
+      "near_changed_lines findings are contextual reminders near changed code; they are not necessarily introduced by the current diff."
     ]
   }
 }
