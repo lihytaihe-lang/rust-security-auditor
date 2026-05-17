@@ -433,3 +433,87 @@ git diff --check
 - `npm run typecheck`: passed.
 - `npm test`: passed, 53 tests passed.
 - `git diff --check`: passed.
+
+## Diff Review Regression Dogfood After Phase 12
+
+Date: 2026-05-17
+
+This Phase 13 dogfood pass only validated the Phase 12 diff-review context precision. It did not add scanner rules, change MCP tool behavior, build ChatGPT App or SaaS/upload flows, enter deep-audit/release-gate mode, or add a new product feature.
+
+### Fixture Method
+
+The pass reused the Phase 12 temporary fixture shapes from `test/mcp.test.ts` and ran direct `rustReviewCurrentDiff` calls against throwaway git repositories. No persisted fixture or scanner behavior was added.
+
+Validated scenarios:
+
+- A. Added unsafe block with a specific primitive in the added unsafe site.
+- B. Pre-existing specific primitive inside the same unsafe site touched by the diff.
+- C. Pre-existing unsafe in the same function as the changed line, but outside the changed unsafe site.
+- D. Pre-existing unsafe/build risk nearby in a different function.
+- E. Unrelated nearby unsafe context with no confirmed function or unsafe-site tie.
+
+### Scenario Results
+
+- A. Added unsafe block:
+  - Compact review produced 2 visible findings, both `introduced_by_diff`: `RSA-UNSAFE-BLOCK` and `RSA-UNSAFE-TRANSMUTE`.
+  - Both appeared under `Introduced by this diff`.
+  - `reviewDecision.status` was `needs_attention`, `safeToCommit` was `false`, with 0 hard blockers and 2 manual-review findings.
+  - `suggestedFixPrompt` was strong enough for Codex handoff: it included the rule, location, function/relation context, changed-line context, and the "First explain..." safety-invariant instruction.
+- B. Same unsafe-site primitive:
+  - Compact review produced 2 visible `same_unsafe_site_context` findings: the generic unsafe block and `RSA-UNSAFE-TRANSMUTE`.
+  - Findings appeared under `Relevant context in same unsafe site`.
+  - `reviewDecision.status` was `needs_attention`, with 0 hard blockers and 2 manual-review findings.
+  - This correctly makes the context visible without treating it as an introduced hard block.
+- C. Same-function old unsafe:
+  - Compact review produced 1 visible `same_function_context` finding: `RSA-UNSAFE-BLOCK`.
+  - The finding appeared under `Relevant context in same function`.
+  - Recommended action was `manual_review`; hard blockers stayed at 0.
+  - This matches the desired "human confirmation" behavior for old unsafe in the same function.
+- D. Nearby legacy in a different function:
+  - Compact review counted 1 `nearby_legacy_context` finding but showed 0 visible findings.
+  - `reviewDecision.status` was `pass`, `safeToCommit` was `true`, and hidden context count was 1.
+  - Full report showed `RSA-BUILD-COMMAND` as `nearby_legacy_context` with `monitor`, while `safeToCommit` remained `true`.
+  - This matches the desired behavior: legacy context is inspectable, but it is not a compact-report main issue and does not block the diff.
+- E. Unrelated nearby:
+  - Compact review counted 2 `unrelated_nearby` findings.
+  - It showed 0 visible findings, hidden context count was 2, `reviewDecision.status` was `pass`, and `safeToCommit` was `true`.
+  - This confirms unrelated nearby context is hidden by default.
+
+### Experience Conclusions
+
+- Phase 12 did reduce nearby legacy noise. The biggest improvement is that different-function legacy findings and unrelated nearby findings no longer look like current-diff issues in compact review.
+- Compact report now feels much closer to a real PR review. It leads with the commit decision, shows introduced findings and direct context, then summarizes hidden legacy context instead of flooding the main review body.
+- `reviewDecision` is closer to "can this change be submitted?" than before. Introduced findings and directly related same-site/same-function findings can stop or pause the commit, while nearby legacy and unrelated context leave `safeToCommit: true` by default.
+- `suggestedFixPrompt` no longer pushes Codex toward unrelated historical fixes. Strong prompts are reserved for introduced and same unsafe-site work; same-function prompts ask for impact confirmation first; legacy/unrelated prompts are hidden in compact mode and, in full mode, explicitly say to review separately.
+- Full report still provides complete context. `reportMode=full` exposes legacy nearby findings and keeps them clearly separated from introduced/current-diff review sections.
+
+### Remaining Risks
+
+- `same_function_context` is intentionally conservative. It is useful for review, but it can still ask for human confirmation when the changed line is mechanically unrelated to an old unsafe block in the same function.
+- `same_unsafe_site_context` performed best for precision, but grouped unsafe sites can still produce one prompt per finding. A future grouped prompt per unsafe site would reduce repetition.
+- `nearby_legacy_context` and `unrelated_nearby` are the safest relations for compact review because they are hidden and non-blocking by default. Their main risk is under-explaining why something was hidden unless the reviewer opens the full report.
+
+### Phase 14 Recommendation
+
+Recommended direction: **build compact mode for non-diff audits next.**
+
+Rationale:
+
+- Phase 12's diff-review precision is effective enough for daily PR-style review.
+- The remaining diff-review issues are smaller UX refinements, mainly grouped prompts and occasional conservative same-function context.
+- The larger day-to-day gap is now non-diff audit verbosity. Project and unsafe audits still need a compact reviewer-facing mode comparable to current diff review.
+- Keep a narrow diff-review follow-up available for grouped unsafe-site prompts or AST-aware context if real dogfood starts showing same-function false positives, but do not continue broad diff-review optimization before addressing non-diff compact reporting.
+
+### Phase 13 Verification
+
+Passed after this document update:
+
+```bash
+npm run typecheck
+npm test
+git diff --check
+```
+
+- `npm run typecheck`: passed.
+- `npm test`: passed, 53 tests passed.
+- `git diff --check`: passed.
