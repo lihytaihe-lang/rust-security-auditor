@@ -1,0 +1,81 @@
+{
+  "name": "rust-security-auditor-codex",
+  "description": "Example Codex Skill / MCP configuration for using the local Rust Security Auditor from a Codex project context.",
+  "skill": {
+    "displayName": "Rust Security Auditor",
+    "path": "skills/rust-security-auditor/SKILL.md",
+    "recommendedInvocations": [
+      "@Rust Security Auditor review current diff",
+      "@Rust Security Auditor audit unsafe",
+      "@Rust Security Auditor audit dependencies",
+      "@Rust Security Auditor audit project",
+      "@Rust Security Auditor run release security audit",
+      "@Rust Security Auditor check this Rust project before commit",
+      "@Rust Security Auditor check this Rust project before release"
+    ]
+  },
+  "mcpServers": {
+    "rust-security-auditor": {
+      "command": "npm",
+      "args": ["--silent", "run", "mcp"],
+      "cwd": "/absolute/path/to/rust-security-auditor"
+    }
+  },
+  "tools": [
+    {
+      "name": "rust_review_current_diff",
+      "naturalLanguageEntries": [
+        "review current diff",
+        "check this Rust project before commit"
+      ],
+      "recommendedUsage": "Use before commit or PR to review security findings in Git diff affected files.",
+      "defaultArguments": {
+        "projectPath": "/absolute/path/to/rust/project",
+        "outputFormat": "json"
+      }
+    },
+    {
+      "name": "rust_audit_unsafe",
+      "naturalLanguageEntries": ["audit unsafe"],
+      "recommendedUsage": "Use for unsafe blocks, unsafe fn, FFI, raw pointers, MaybeUninit, transmute, raw-parts APIs, and unsafe Send/Sync review.",
+      "defaultArguments": {
+        "projectPath": "/absolute/path/to/rust/project",
+        "includeDocumentedUnsafe": true,
+        "outputFormat": "json"
+      }
+    },
+    {
+      "name": "rust_audit_dependencies",
+      "naturalLanguageEntries": ["audit dependencies"],
+      "recommendedUsage": "Use for Cargo.toml, Cargo.lock, build.rs, git/path dependencies, proc macros, and build dependencies.",
+      "defaultArguments": {
+        "projectPath": "/absolute/path/to/rust/project",
+        "outputFormat": "json"
+      }
+    },
+    {
+      "name": "rust_audit_project",
+      "naturalLanguageEntries": [
+        "audit project",
+        "run release security audit",
+        "check this Rust project before release"
+      ],
+      "recommendedUsage": "Use before release or for a full local Rust project security health check.",
+      "defaultArguments": {
+        "projectPath": "/absolute/path/to/rust/project",
+        "includeSuppressed": false,
+        "outputFormat": "json"
+      }
+    }
+  ],
+  "stdioNotes": [
+    "Use npm --silent run mcp. Plain npm run mcp can print npm lifecycle banners to stdout.",
+    "MCP stdio stdout must contain only JSON-RPC protocol frames. Ordinary logs must not pollute stdout.",
+    "The server scans local project paths passed by Codex. It does not require uploading code packages."
+  ],
+  "boundaries": [
+    "This is not a ChatGPT App configuration.",
+    "This is not a SaaS upload flow.",
+    "This is not a web UI."
+  ]
+}

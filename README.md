@@ -2,9 +2,9 @@
 
 Rust Security Auditor is a local TypeScript kernel and MCP server for low-noise Rust security review in Codex and other MCP clients. It is intentionally scoped to Rust security findings: unsafe/FFI, dependency and supply-chain risk, command execution, filesystem/path handling, input boundaries, secrets, panic/DoS, and manual-review items.
 
-This repository is currently at Phase 3.5. It provides a local stdio MCP server over the Phase 2.5 scanner kernel, plus MCP client integration guidance and validation fixtures. It does not provide a ChatGPT App, Codex Skill, Codex Plugin, web UI, SaaS upload flow, uploaded code package scanning, or generic code review.
+This repository is currently at Phase 4. It provides a local scanner kernel, a stdio MCP server, and a Codex Skill / Plugin usage layer for natural `@Rust Security Auditor` calls inside a local Codex project context. It does not provide a ChatGPT App, web UI, SaaS upload flow, uploaded code package scanning, or generic code review.
 
-## Phase 3 / 3.5 Contents
+## Phase 4 Contents
 
 - TypeScript project configuration
 - Stable Finding schema and validation helpers
@@ -23,8 +23,17 @@ This repository is currently at Phase 3.5. It provides a local stdio MCP server 
 - Local MCP debug caller for invoking tools without an MCP client
 - Codex/MCP client stdio configuration documentation
 - Example MCP client config and sanitized MCP validation outputs under `examples/`
+- Codex Skill documentation under `skills/rust-security-auditor/`
+- Codex Plugin / MCP usage example at `examples/codex-plugin-config.json`
 - MCP client smoke tests for tool listing and tool calls
 - Build, typecheck, lint, and test scripts
+
+## Current Status
+
+- Scanner kernel ready.
+- MCP server ready.
+- Codex usage layer ready.
+- ChatGPT App not implemented yet.
 
 ## Install
 
@@ -48,7 +57,7 @@ npm run lint
 
 ## MCP Server
 
-The Phase 3.5 MCP server is a local development tool that communicates over stdio. It is intended to run on the same machine as Codex, ChatGPT, or another MCP client so the client can pass local project paths. Do not expose this server directly as a public network service.
+The MCP server is a local development tool that communicates over stdio. It is intended to run on the same machine as Codex or another MCP client so the client can pass local project paths. Do not expose this server directly as a public network service.
 
 Start the server:
 
@@ -80,7 +89,27 @@ Local stdio server configuration example:
 }
 ```
 
-Use an absolute `cwd` for your local checkout. A fuller reference config with tool descriptions and troubleshooting notes lives at `examples/mcp-client-config.json`.
+Use an absolute `cwd` for your local checkout. A fuller MCP client reference config with tool descriptions and troubleshooting notes lives at `examples/mcp-client-config.json`. A Codex Skill / Plugin oriented example lives at `examples/codex-plugin-config.json`.
+
+The Codex Skill documentation lives in:
+
+- `skills/rust-security-auditor/SKILL.md`
+- `skills/rust-security-auditor/examples.md`
+- `skills/rust-security-auditor/troubleshooting.md`
+
+Recommended Codex entry points:
+
+| Codex request | MCP tool |
+| --- | --- |
+| `@Rust Security Auditor review current diff` | `rust_review_current_diff` |
+| `@Rust Security Auditor check this Rust project before commit` | `rust_review_current_diff` |
+| `@Rust Security Auditor audit unsafe` | `rust_audit_unsafe` |
+| `@Rust Security Auditor audit dependencies` | `rust_audit_dependencies` |
+| `@Rust Security Auditor audit project` | `rust_audit_project` |
+| `@Rust Security Auditor run release security audit` | `rust_audit_project` |
+| `@Rust Security Auditor check this Rust project before release` | `rust_audit_project` |
+
+Codex should summarize tool results as security review output with an overall risk conclusion, blocking issues, recommended fixes, manual-review items, and false-positive or suppression notes. It should not output generic style advice, claim a complete formal audit, or modify code unless the user explicitly asks for fixes.
 
 The server uses `@modelcontextprotocol/sdk` and registers these tools:
 
@@ -190,7 +219,7 @@ These commands print the structured tool output as JSON.
 
 Use `rust_review_current_diff` while reviewing a local branch before commit or PR. Use `rust_audit_unsafe` when touching FFI, pointer, initialization, Send/Sync, or raw-memory code. Use `rust_audit_dependencies` when Cargo manifests, lockfiles, build scripts, proc macros, git/path dependencies, or build dependencies change. Use `rust_audit_project` before release to get a full local project security pass.
 
-This project intentionally does not upload code packages, does not run as SaaS, and is prioritized as a local Codex/MCP project-context tool.
+The Skill maps natural `@Rust Security Auditor ...` requests to these tools and defines how Codex should interpret severity, confidence, blocking release guidance, manual-review items, and suppressions. This project intentionally does not upload code packages, does not run as SaaS, and is prioritized as a local Codex/MCP project-context tool.
 
 ## Public Modules
 
