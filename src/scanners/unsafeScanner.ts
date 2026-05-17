@@ -34,6 +34,18 @@ export class UnsafeScanner implements SecurityScanner<UnsafeScannerContext> {
   }
 }
 
+export function scanUnsafeRustText(file: string, source: string): Finding[] {
+  const lines = source.split(/\r?\n/);
+  const findings: Finding[] = [];
+
+  lines.forEach((line, index) => {
+    if (isCommentOnlyLine(line)) return;
+    findings.push(...findUnsafeLineFindings(file, index + 1, line, lines, index));
+  });
+
+  return findings;
+}
+
 function findUnsafeLineFindings(
   file: string,
   lineNumber: number,

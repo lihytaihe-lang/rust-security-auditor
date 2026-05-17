@@ -64,6 +64,56 @@ export class DependencyScanner implements SecurityScanner<DependencyScannerConte
   }
 }
 
+export function scanCargoManifestText(file: string, source: string): Finding[] {
+  const findings: Finding[] = [];
+  let section = "";
+
+  source.split(/\r?\n/).forEach((line, index) => {
+    if (isCommentOnlyLine(line)) return;
+
+    const nextSection = parseTomlSection(line);
+    if (nextSection !== undefined) {
+      section = nextSection;
+      if (isBuildDependencySection(section)) {
+        findings.push(createSimpleFinding("RSA-DEP-BUILD-DEPENDENCIES", file, index + 1, line));
+      }
+      return;
+    }
+
+    findings.push(...findManifestLineFindings(file, index + 1, line, section));
+  });
+
+  return findings;
+}
+
+export function scanCargoLockText(file: string, source: string): Finding[] {
+  const findings: Finding[] = [];
+
+  source.split(/\r?\n/).forEach((line, index) => {
+    if (/^\s*source\s*=\s*"git\+/.test(line)) {
+      findings.push(createSimpleFinding("RSA-DEP-LOCK-GIT", file, index + 1, line));
+    }
+  });
+
+  return findings;
+}
+
+export function scanBuildScriptText(file: string, source: string): Finding[] {
+  const findings: Finding[] = [];
+  const lines = source.split(/\r?\n/);
+
+  findings.push(buildScriptFinding(file, firstMeaningfulLine(lines), lines));
+
+  lines.forEach((line, index) => {
+    if (isCommentOnlyLine(line)) return;
+    if (/\bCommand::new\s*\(|\bsh\s+-c\b|\bcmd\s+\/C\b|\bCommand::new\s*\(\s*["'](?:sh|cmd)["']/.test(line)) {
+      findings.push(createSimpleFinding("RSA-BUILD-COMMAND", file, index + 1, line));
+    }
+  });
+
+  return findings;
+}
+
 function findManifestLineFindings(file: string, lineNumber: number, line: string, section: string): Finding[] {
   const findings: Finding[] = [];
   const dependencySection = isDependencySection(section);
