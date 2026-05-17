@@ -24,7 +24,7 @@
     "lint": "npm run typecheck",
     "mcp": "npm --silent run build && node dist/src/mcp/server.js",
     "mcp:call": "npm --silent run build && node dist/src/mcp/debug.js",
-    "test": "npm run build && node --test dist/test/**/*.test.js",
+    "test": "npm run build && find dist/test -name '*.test.js' -type f -print0 | xargs -0 node --test",
     "check": "npm run typecheck && npm test && git diff --check",
     "prepack": "npm run build",
     "clean": "rm -rf dist"
