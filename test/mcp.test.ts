@@ -183,14 +183,23 @@ describe("MCP audit tools", () => {
   });
 
   it("returns a readable warning when git diff is unavailable", async () => {
-    const output = await rustReviewCurrentDiff({
-      projectPath: vulnerableFixturePath
-    });
+    const tempRoot = await mkdtemp(join(tmpdir(), "rust-security-auditor-no-git-"));
+    const projectPath = join(tempRoot, "repo");
 
-    assert.equal(output.error, undefined);
-    assert.deepEqual(output.diffAffectedFiles, []);
-    assert.equal(output.findings.length, 0);
-    assert.match(output.warnings?.join("\n") ?? "", /git diff is unavailable/);
+    try {
+      await cp(vulnerableFixturePath, projectPath, { recursive: true });
+
+      const output = await rustReviewCurrentDiff({
+        projectPath
+      });
+
+      assert.equal(output.error, undefined);
+      assert.deepEqual(output.diffAffectedFiles, []);
+      assert.equal(output.findings.length, 0);
+      assert.match(output.warnings?.join("\n") ?? "", /git diff is unavailable/);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
   });
 });
 
