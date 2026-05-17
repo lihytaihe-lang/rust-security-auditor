@@ -16,7 +16,7 @@ import type { McpToolOutput } from "./types.js";
 
 const outputFormatSchema = z.enum(["json", "markdown"]);
 const pathModeSchema = z.enum(["relative", "absolute"]);
-const diffReportModeSchema = z.enum(["full", "compact"]);
+const reportModeSchema = z.enum(["full", "compact"]);
 const readOnlyAnnotations = {
   readOnlyHint: true,
   destructiveHint: false,
@@ -48,6 +48,9 @@ export function createRustSecurityAuditorMcpServer(): McpServer {
         pathMode: pathModeSchema
           .optional()
           .describe("Controls paths in reportMarkdown. Defaults to relative to avoid leaking local absolute paths."),
+        reportMode: reportModeSchema
+          .optional()
+          .describe("Controls reportMarkdown detail. Defaults to compact for developer handoff; use full for complete finding details."),
         includeSuppressed: z
           .boolean()
           .optional()
@@ -78,7 +81,10 @@ export function createRustSecurityAuditorMcpServer(): McpServer {
           .describe("Omit or set to json for structured JSON; set to markdown to also include reportMarkdown text for display."),
         pathMode: pathModeSchema
           .optional()
-          .describe("Controls paths in reportMarkdown. Defaults to relative to avoid leaking local absolute paths.")
+          .describe("Controls paths in reportMarkdown. Defaults to relative to avoid leaking local absolute paths."),
+        reportMode: reportModeSchema
+          .optional()
+          .describe("Controls reportMarkdown detail. Defaults to compact unsafe-review checklist; use full for complete finding details.")
       }
     },
     async (input) => toCallToolResult(await rustAuditUnsafe(input))
@@ -101,7 +107,10 @@ export function createRustSecurityAuditorMcpServer(): McpServer {
           .describe("Omit or set to json for structured JSON; set to markdown to also include reportMarkdown text for display."),
         pathMode: pathModeSchema
           .optional()
-          .describe("Controls paths in reportMarkdown. Defaults to relative to avoid leaking local absolute paths.")
+          .describe("Controls paths in reportMarkdown. Defaults to relative to avoid leaking local absolute paths."),
+        reportMode: reportModeSchema
+          .optional()
+          .describe("Controls reportMarkdown detail. Defaults to compact supply-chain checklist; use full for complete finding details.")
       }
     },
     async (input) => toCallToolResult(await rustAuditDependencies(input))
@@ -148,7 +157,7 @@ export function createRustSecurityAuditorMcpServer(): McpServer {
         pathMode: pathModeSchema
           .optional()
           .describe("Controls paths in reportMarkdown. Defaults to relative for shareable PR comments."),
-        reportMode: diffReportModeSchema
+        reportMode: reportModeSchema
           .optional()
           .describe("Controls reportMarkdown detail. Defaults to compact for Codex and PR comments; use full for complete details.")
       }

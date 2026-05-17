@@ -20,6 +20,22 @@
               "markdown"
             ]
           },
+          "pathMode": {
+            "description": "Controls paths in reportMarkdown. Defaults to relative to avoid leaking local absolute paths.",
+            "type": "string",
+            "enum": [
+              "relative",
+              "absolute"
+            ]
+          },
+          "reportMode": {
+            "description": "Controls reportMarkdown detail. Defaults to compact for developer handoff; use full for complete finding details.",
+            "type": "string",
+            "enum": [
+              "full",
+              "compact"
+            ]
+          },
           "includeSuppressed": {
             "description": "When true, include findings that were hidden by inline rust-security-auditor suppression comments.",
             "type": "boolean"
@@ -63,6 +79,22 @@
               "json",
               "markdown"
             ]
+          },
+          "pathMode": {
+            "description": "Controls paths in reportMarkdown. Defaults to relative to avoid leaking local absolute paths.",
+            "type": "string",
+            "enum": [
+              "relative",
+              "absolute"
+            ]
+          },
+          "reportMode": {
+            "description": "Controls reportMarkdown detail. Defaults to compact unsafe-review checklist; use full for complete finding details.",
+            "type": "string",
+            "enum": [
+              "full",
+              "compact"
+            ]
           }
         },
         "required": [
@@ -98,6 +130,22 @@
             "enum": [
               "json",
               "markdown"
+            ]
+          },
+          "pathMode": {
+            "description": "Controls paths in reportMarkdown. Defaults to relative to avoid leaking local absolute paths.",
+            "type": "string",
+            "enum": [
+              "relative",
+              "absolute"
+            ]
+          },
+          "reportMode": {
+            "description": "Controls reportMarkdown detail. Defaults to compact supply-chain checklist; use full for complete finding details.",
+            "type": "string",
+            "enum": [
+              "full",
+              "compact"
             ]
           }
         },
@@ -144,12 +192,34 @@
             "description": "When true, include findings in changed files that are not close to added lines.",
             "type": "boolean"
           },
+          "nearChangedLineWindow": {
+            "description": "Line window for nearby legacy context classification. Defaults to 3.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 50
+          },
           "outputFormat": {
             "description": "Omit or set to json for structured JSON; set to markdown to also include reportMarkdown text for display.",
             "type": "string",
             "enum": [
               "json",
               "markdown"
+            ]
+          },
+          "pathMode": {
+            "description": "Controls paths in reportMarkdown. Defaults to relative for shareable PR comments.",
+            "type": "string",
+            "enum": [
+              "relative",
+              "absolute"
+            ]
+          },
+          "reportMode": {
+            "description": "Controls reportMarkdown detail. Defaults to compact for Codex and PR comments; use full for complete details.",
+            "type": "string",
+            "enum": [
+              "full",
+              "compact"
             ]
           }
         },
@@ -181,19 +251,27 @@
             "description": "Absolute or relative local directory for a Rust Cargo project or workspace; only files under this directory are scanned."
           },
           "includeExpired": {
-            "description": "When true, include expired rustsec-auditor suppression comments in acceptedRisks and the Markdown report.",
-            "type": "boolean"
+            "type": "boolean",
+            "description": "When true, include expired rustsec-auditor suppression comments in acceptedRisks and the Markdown report."
           },
           "includeInvalid": {
-            "description": "When true, include invalid rustsec-auditor suppression comments in acceptedRisks and the Markdown report.",
-            "type": "boolean"
+            "type": "boolean",
+            "description": "When true, include invalid rustsec-auditor suppression comments in acceptedRisks and the Markdown report."
           },
           "outputFormat": {
-            "description": "Set to json for structured JSON; set to markdown to include reportMarkdown text for display.",
             "type": "string",
             "enum": [
               "json",
               "markdown"
+            ],
+            "description": "Set to json for structured JSON; set to markdown to include reportMarkdown text for display."
+          },
+          "pathMode": {
+            "description": "Controls paths in reportMarkdown. Defaults to relative to avoid leaking local absolute paths.",
+            "type": "string",
+            "enum": [
+              "relative",
+              "absolute"
             ]
           }
         },

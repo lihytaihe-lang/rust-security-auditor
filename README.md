@@ -53,6 +53,14 @@ npm run typecheck
 npm test
 ```
 
+For a clean CI-style install from `package-lock.json`, use `npm ci` instead of `npm install`:
+
+```bash
+npm ci
+npm run typecheck
+npm test
+```
+
 Start the local MCP server:
 
 ```bash
@@ -105,8 +113,9 @@ The MCP client sends tool calls with local project paths. Example arguments:
 {
   "projectPath": "/absolute/path/to/rust/project",
   "includeDocumentedUnsafe": true,
-  "outputFormat": "json",
-  "pathMode": "relative"
+  "outputFormat": "markdown",
+  "pathMode": "relative",
+  "reportMode": "compact"
 }
 ```
 
@@ -115,8 +124,9 @@ The MCP client sends tool calls with local project paths. Example arguments:
 ```json
 {
   "projectPath": "/absolute/path/to/rust/project",
-  "outputFormat": "json",
-  "pathMode": "relative"
+  "outputFormat": "markdown",
+  "pathMode": "relative",
+  "reportMode": "compact"
 }
 ```
 
@@ -127,6 +137,7 @@ The MCP client sends tool calls with local project paths. Example arguments:
   "projectPath": "/absolute/path/to/rust/project",
   "outputFormat": "markdown",
   "pathMode": "relative",
+  "reportMode": "compact",
   "includeSuppressed": false
 }
 ```
@@ -149,8 +160,9 @@ The supported preview path is MCP client usage. For local debugging, the reposit
 
 ```bash
 npm run mcp:call -- rust_audit_project --projectPath test/fixtures/vulnerable-rust-project --outputFormat markdown
-npm run mcp:call -- rust_audit_unsafe --projectPath test/fixtures/vulnerable-rust-project
-npm run mcp:call -- rust_audit_dependencies --projectPath test/fixtures/dependency-risk
+npm run mcp:call -- rust_audit_project --projectPath test/fixtures/vulnerable-rust-project --outputFormat markdown --reportMode full
+npm run mcp:call -- rust_audit_unsafe --projectPath test/fixtures/vulnerable-rust-project --outputFormat markdown --reportMode compact
+npm run mcp:call -- rust_audit_dependencies --projectPath test/fixtures/dependency-risk --outputFormat markdown --reportMode compact
 npm run mcp:call -- rust_review_current_diff --projectPath /absolute/path/to/rust/project --outputFormat markdown --pathMode relative --reportMode compact
 npm run mcp:call -- rust_review_current_diff --projectPath /absolute/path/to/rust/project --staged true --nearChangedLineWindow 2
 npm run mcp:call -- rust_list_accepted_risks --projectPath test/fixtures/suppressed-rust-project --includeExpired true --includeInvalid true --outputFormat markdown
@@ -198,6 +210,25 @@ The Skill documentation lives in:
 - `skills/rust-security-auditor/troubleshooting.md`
 
 ## Tool Behavior
+
+### Non-Diff Audit Report Modes
+
+`rust_audit_project`, `rust_audit_unsafe`, and `rust_audit_dependencies` support `reportMode: "compact" | "full"` for Markdown output. `compact` is the default and is intended for Codex summaries, developer handoff, and day-to-day review. `full` preserves the complete per-finding report with evidence, why-it-matters text, risk scenario, suggested fix, suggested tests, references, false-positive notes, and accepted-risk suppression information when present.
+
+For all non-diff audit tools:
+
+- `pathMode` defaults to `relative`, so Markdown uses `.` for scope and relative file locations by default. JSON still keeps the resolved `projectPath`.
+- `compact` keeps the JSON `findings` array complete while hiding most repeated per-finding detail from Markdown.
+- `full` is the better mode for complete audit notes, handoff archives, or suppression review.
+- Non-diff audits are heuristic static review. They are not release gates, formal safety proofs, or substitutes for manual unsafe and supply-chain review.
+
+Compact report shapes:
+
+- `rust_audit_project`: overall risk, severity/category/ruleId counts, top 5 findings, high-priority areas, next audit suggestions, and a few Codex-ready prompts.
+- `rust_audit_unsafe`: unsafe review checklist with counts for unsafe blocks, unsafe fn, unsafe Send/Sync impls, FFI, raw-memory primitives, grouped unsafe sites/functions, required manual invariant review, and reusable Codex prompts.
+- `rust_audit_dependencies`: supply-chain checklist with git/path dependencies, build scripts, proc macros, build dependencies, lockfile git sources, high-priority review items, and dependency trust prompts.
+
+### Current Diff Review
 
 `rust_review_current_diff` reviews the current Git diff for a local Cargo project or workspace. With no refs and no `staged`, it reviews `git diff`. With `staged: true`, it reviews `git diff --cached`. With both `baseRef` and `headRef`, it reviews `git diff baseRef..headRef`.
 

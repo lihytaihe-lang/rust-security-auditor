@@ -27,7 +27,9 @@ Map these user entries to MCP tools:
 | `check expired suppressions` | `rust_list_accepted_risks` | Review expired `rustsec-auditor` suppressions. |
 | `review accepted risk inventory before release` | `rust_list_accepted_risks` | Pre-release accepted-risk inventory and cleanup check. |
 
-Always pass the current local Rust project directory as `projectPath` unless the user provides a different local path. Prefer `outputFormat: "json"` when Codex will summarize and reason over the result; use `outputFormat: "markdown"` when the user explicitly wants the generated report text.
+Always pass the current local Rust project directory as `projectPath` unless the user provides a different local path. Prefer `outputFormat: "json"` when Codex will summarize and reason over the result; use `outputFormat: "markdown"` when the user explicitly wants the generated report text. When generating Markdown, use `pathMode: "relative"` by default.
+
+For `rust_audit_project`, `rust_audit_unsafe`, and `rust_audit_dependencies`, use `reportMode: "compact"` by default. Compact non-diff reports keep JSON findings complete while making Markdown suitable for Codex and developer handoff. Use `reportMode: "full"` only when the user asks for complete evidence, suggested fixes/tests, suppression details, or an archive-style audit report.
 
 ## Tool Selection
 
@@ -54,9 +56,15 @@ Explain that changed-line awareness improves PR focus, but the result is still h
 
 Call `rust_audit_unsafe` when the user asks about unsafe Rust, FFI, raw pointers, `unsafe fn`, `unsafe impl Send`, `unsafe impl Sync`, `MaybeUninit`, `transmute`, `from_raw_parts`, `set_len`, or `Box::from_raw`. Focus on safety invariants, ownership, lifetimes, initialization, aliasing, unwind behavior, and thread-safety contracts.
 
+In compact Markdown, treat `rust_audit_unsafe` as an unsafe review checklist: summarize unsafe blocks, unsafe fn, unsafe Send/Sync impls, FFI, and raw-memory primitives; use the grouped unsafe site/function view; and present the required manual invariants plus the suggested Codex prompts.
+
 Call `rust_audit_dependencies` when the user asks about dependencies, supply chain, Cargo changes, `Cargo.toml`, `Cargo.lock`, `build.rs`, `git` dependencies, `path` dependencies, proc macros, or build dependencies. Focus on build-time code execution, dependency source trust, revision pinning, and local path trust boundaries.
 
+In compact Markdown, treat `rust_audit_dependencies` as a supply-chain checklist: lead with build.rs command execution, git dependencies, lockfile git sources, proc macros, and build dependencies. Remind the user to run `cargo audit` separately because this tool does not query vulnerability databases.
+
 Call `rust_audit_project` when the user asks for a full local project scan, project health check, before release, or before publishing. Treat this as the broadest local scan across unsafe/FFI, dependency/supply-chain, build scripts, command execution, filesystem/path handling, input boundaries, secrets, panic/DoS, concurrency, and manual-review categories.
+
+In compact Markdown, treat `rust_audit_project` as a broad project summary, not a 1:1 finding dump: report the risk level, counts, top 5 findings, grouped categories/rule IDs, high-priority areas, and suggested next audits (`rust_audit_unsafe`, `rust_audit_dependencies`, `rust_review_current_diff`, `rust_list_accepted_risks`).
 
 Call `rust_list_accepted_risks` when the user asks to list accepted risks, show suppressed risks, check expired suppressions, clean up invalid suppressions, or review the accepted risk inventory before release. This tool only scans Rust source files for `rustsec-auditor` suppression comments; it does not run the full scanner and does not modify source code. Use `includeExpired: true` when the user wants expired suppressions, `includeInvalid: true` when the user wants invalid suppressions, and `outputFormat: "markdown"` when the user asks for the inventory report.
 
@@ -111,6 +119,7 @@ Before pre-release review:
 - Block by default on any `critical` or `high` finding from `rust_audit_project`.
 - Treat any `medium`, `manual_review`, or low-confidence finding as a required manual release checklist item.
 - State when the result is a heuristic scan and not a guarantee that the release is secure.
+- Do not present non-diff audit output as a formal release gate. It is a review aid and developer handoff artifact.
 
 ## False Positives And Suppression
 

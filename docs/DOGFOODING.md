@@ -218,6 +218,21 @@ Experience conclusion:
 
 Recommended direction: continue optimizing diff review first, with small AST-aware parsing work used only where it directly reduces diff-review noise.
 
+## Phase 14 Follow-Up Note
+
+Date: 2026-05-17
+
+Phase 14 addressed the non-diff report UX issues observed above without changing scanner rules, adding deep audit behavior, creating a ChatGPT App/SaaS flow, or uploading code.
+
+- `rust_audit_project`, `rust_audit_unsafe`, and `rust_audit_dependencies` now accept `reportMode: "compact" | "full"` for Markdown output.
+- `compact` is the default for non-diff audits. JSON findings remain complete, while Markdown is shorter and grouped for developer handoff.
+- `full` preserves complete finding details: evidence, why it matters, risk scenario, suggested fix, suggested tests, references/notes, and suppression information when present.
+- Markdown path display defaults to `pathMode: "relative"`, so compact reports use `.` for scope and relative file locations.
+- `rust_audit_project` compact mode shows risk, counts, top findings, grouped category/rule IDs, high-priority areas, next audit suggestions, and a few Codex-ready prompts.
+- `rust_audit_unsafe` compact mode groups by unsafe site/function and presents manual invariant-review prompts for pointer validity, aliasing, ownership transfer, Send/Sync, and FFI boundaries.
+- `rust_audit_dependencies` compact mode presents a supply-chain checklist focused on build.rs command execution, git/path dependencies, build dependencies, proc macros, and lockfile git sources.
+- The documentation now calls out that non-diff audits are heuristic review aids, not release gates or formal safety proofs.
+
 Rationale:
 
 - The best current user experience is `rust_review_current_diff`.

@@ -41,23 +41,18 @@ export function renderMarkdownReport(input: AuditReportInput): string {
 
   for (const severity of severityOrder) {
     const group = regularFindings.filter((finding) => finding.severity === severity);
-    lines.push("", `## ${sectionTitle(severity)}`, "");
-
     if (group.length === 0) {
-      lines.push(`No ${severity} risk findings.`);
       continue;
     }
 
+    lines.push("", `## ${sectionTitle(severity)}`, "");
     for (const finding of group) {
       lines.push(...formatFinding(finding), "");
     }
   }
 
-  lines.push("", "## Needs Manual Review", "");
-
-  if (manualReviewFindings.length === 0) {
-    lines.push("No manual review items.");
-  } else {
+  if (manualReviewFindings.length > 0) {
+    lines.push("", "## Needs Manual Review", "");
     for (const finding of manualReviewFindings) {
       lines.push(...formatFinding(finding), "");
     }

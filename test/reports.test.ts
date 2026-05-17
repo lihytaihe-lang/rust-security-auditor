@@ -74,7 +74,8 @@ describe("reporters", () => {
     assert.match(markdown, /### RSA-001: Command execution reaches external input/);
     assert.match(markdown, /- Rule: RSA-BUILD-COMMAND/);
     assert.match(markdown, /- Location: `src\/runner.rs:42`/);
-    assert.match(markdown, /## Needs Manual Review/);
+    assert.doesNotMatch(markdown, /## Critical Risk Findings/);
+    assert.doesNotMatch(markdown, /## Needs Manual Review/);
   });
 
   it("renders json with schema version and summary", () => {

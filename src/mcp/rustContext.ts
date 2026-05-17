@@ -35,6 +35,27 @@ export async function extractRustContextForDiffFiles(
   return contexts;
 }
 
+export async function extractRustContextForProjectFiles(
+  projectPath: string,
+  files: readonly string[]
+): Promise<Map<string, RustFileContext>> {
+  const contexts = new Map<string, RustFileContext>();
+  const rustFiles = [...new Set(files.filter((file) => file.endsWith(".rs")))];
+
+  await Promise.all(
+    rustFiles.map(async (file) => {
+      try {
+        const source = await readFile(join(projectPath, file), "utf8");
+        contexts.set(file, extractRustFileContext(file, source.split(/\r?\n/)));
+      } catch {
+        // Non-diff audit reports can still be useful without function/site context.
+      }
+    })
+  );
+
+  return contexts;
+}
+
 export function contextForLine(context: RustFileContext | undefined, line: number | undefined): RustLineContext {
   if (context === undefined || line === undefined) return {};
 

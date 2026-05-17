@@ -110,7 +110,79 @@ describe("MCP audit tools", () => {
     assert.equal(output.summary.findingCount, output.findings.length);
     assert.equal(output.summary.riskLevel, "high_risk");
     assert.ok(output.summary.severityCounts.high >= 1);
-    assert.match(output.reportMarkdown ?? "", /# Rust Project Security Audit/);
+    assert.match(output.reportMarkdown ?? "", /# Rust Security Audit/);
+  });
+
+  it("rust_audit_project defaults to compact non-diff Markdown", async () => {
+    const output = await rustAuditProject({
+      projectPath: vulnerableFixturePath,
+      outputFormat: "markdown"
+    });
+    const markdown = output.reportMarkdown ?? "";
+
+    assert.equal(output.error, undefined);
+    assert.match(markdown, /# Rust Security Audit/);
+    assert.match(markdown, /## Decision \/ Risk Level/);
+    assert.match(markdown, /- riskLevel: high_risk/);
+    assert.match(markdown, /- findingCount: 21/);
+    assert.match(markdown, /## Top Findings/);
+    assert.match(markdown, /## Grouped Findings/);
+    assert.match(markdown, /## Recommended Next Actions/);
+    assert.match(markdown, /## Hidden Details/);
+    assert.doesNotMatch(markdown, /#### Evidence/);
+    assert.doesNotMatch(markdown, /#### Why it matters/);
+    assert.equal(countMarkdownTopFindingBullets(markdown), 5);
+    assert.ok(output.findings.length > countMarkdownTopFindingBullets(markdown));
+  });
+
+  it("rust_audit_project full report keeps complete finding details", async () => {
+    const output = await rustAuditProject({
+      projectPath: vulnerableFixturePath,
+      outputFormat: "markdown",
+      reportMode: "full"
+    });
+    const markdown = output.reportMarkdown ?? "";
+
+    assert.equal(output.error, undefined);
+    assert.match(markdown, /# Rust Project Security Audit/);
+    assert.match(markdown, /### RSA-BUILD-COMMAND-/);
+    assert.match(markdown, /#### Evidence/);
+    assert.match(markdown, /#### Why it matters/);
+    assert.match(markdown, /#### Risk scenario/);
+    assert.match(markdown, /#### Suggested fix/);
+    assert.match(markdown, /#### Suggested tests/);
+    assert.doesNotMatch(markdown, /## Critical Risk Findings\s+No critical risk findings/);
+  });
+
+  it("rust_audit_project full report includes suppression information when present", async () => {
+    const output = await rustAuditProject({
+      projectPath: suppressedFixturePath,
+      includeSuppressed: true,
+      outputFormat: "markdown",
+      reportMode: "full"
+    });
+    const markdown = output.reportMarkdown ?? "";
+
+    assert.equal(output.error, undefined);
+    assert.match(markdown, /## Accepted \/ Suppressed Risks/);
+    assert.match(markdown, /accepted risk: RSA-UNSAFE-BLOCK/);
+    assert.match(markdown, /expired suppression: RSA-UNSAFE-BLOCK/);
+    assert.match(markdown, /invalid suppression: RSA-UNSAFE-BLOCK/);
+  });
+
+  it("rust_audit_project keeps relative paths in compact Markdown by default", async () => {
+    const output = await rustAuditProject({
+      projectPath: vulnerableFixturePath,
+      outputFormat: "markdown",
+      pathMode: "relative"
+    });
+    const markdown = output.reportMarkdown ?? "";
+
+    assert.equal(output.error, undefined);
+    assert.match(markdown, /- Scope: \./);
+    assert.match(markdown, /build\.rs/);
+    assert.doesNotMatch(markdown, new RegExp(escapeRegExp(vulnerableFixturePath)));
+    assert.doesNotMatch(markdown, new RegExp(escapeRegExp(output.projectPath)));
   });
 
   it("rust_audit_unsafe only returns unsafe, FFI, and unsafe impl related findings", async () => {
@@ -128,6 +200,25 @@ describe("MCP audit tools", () => {
     assert.ok(output.findings.some((finding) => finding.ruleId === "RSA-UNSAFE-IMPL-SEND"));
     assert.ok(output.findings.some((finding) => finding.ruleId === "RSA-FFI-EXTERN-C"));
     assert.equal(output.findings.some((finding) => finding.ruleId.startsWith("RSA-DEP-")), false);
+  });
+
+  it("rust_audit_unsafe compact report groups by unsafe site or function", async () => {
+    const output = await rustAuditUnsafe({
+      projectPath: vulnerableFixturePath,
+      outputFormat: "markdown"
+    });
+    const markdown = output.reportMarkdown ?? "";
+
+    assert.equal(output.error, undefined);
+    assert.match(markdown, /# Rust Unsafe Audit/);
+    assert.match(markdown, /## Unsafe Sites to Review/);
+    assert.match(markdown, /### Unsafe block at src\/lib\.rs:11/);
+    assert.match(markdown, /Rules: RSA-UNSAFE-BLOCK: 1, RSA-UNSAFE-FROM-RAW-PARTS: 1/);
+    assert.match(markdown, /## Required Manual Review/);
+    assert.match(markdown, /pointer validity/i);
+    assert.match(markdown, /## Suggested Codex Review Prompts/);
+    assert.doesNotMatch(markdown, /#### Evidence/);
+    assert.ok(countMarkdownHeadings(markdown, "###") < output.findings.length);
   });
 
   it("rust_audit_unsafe can omit documented unsafe block findings", async () => {
@@ -154,6 +245,44 @@ describe("MCP audit tools", () => {
     );
     assert.ok(output.findings.some((finding) => finding.ruleId === "RSA-BUILD-COMMAND"));
     assert.equal(output.findings.some((finding) => finding.ruleId.startsWith("RSA-UNSAFE-")), false);
+  });
+
+  it("rust_audit_dependencies compact report uses a supply-chain checklist", async () => {
+    const output = await rustAuditDependencies({
+      projectPath: dependencyRiskFixturePath,
+      outputFormat: "markdown"
+    });
+    const markdown = output.reportMarkdown ?? "";
+
+    assert.equal(output.error, undefined);
+    assert.match(markdown, /# Rust Dependency & Supply Chain Audit/);
+    assert.match(markdown, /## High Priority Review Items/);
+    assert.match(markdown, /RSA-BUILD-COMMAND/);
+    assert.match(markdown, /## Supply-Chain Checklist/);
+    assert.match(markdown, /git dependencies: 1/);
+    assert.match(markdown, /build dependencies: 1/);
+    assert.match(markdown, /run `cargo audit` separately/i);
+    assert.doesNotMatch(markdown, /#### Evidence/);
+  });
+
+  it("non-diff reportMode full expands details while compact stays concise", async () => {
+    const compact = await rustAuditDependencies({
+      projectPath: dependencyRiskFixturePath,
+      outputFormat: "markdown",
+      reportMode: "compact"
+    });
+    const full = await rustAuditDependencies({
+      projectPath: dependencyRiskFixturePath,
+      outputFormat: "markdown",
+      reportMode: "full"
+    });
+
+    assert.equal(compact.error, undefined);
+    assert.equal(full.error, undefined);
+    assert.doesNotMatch(compact.reportMarkdown ?? "", /#### Evidence/);
+    assert.match(full.reportMarkdown ?? "", /#### Evidence/);
+    assert.match(full.reportMarkdown ?? "", /#### Suggested fix/);
+    assert.ok((compact.reportMarkdown ?? "").length < (full.reportMarkdown ?? "").length);
   });
 
   it("rust_list_accepted_risks inventories valid, expired, and invalid suppressions", async () => {
@@ -1050,6 +1179,14 @@ function testFinding(input: {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function countMarkdownTopFindingBullets(markdown: string): number {
+  return markdown.match(/^- (?:Critical|High|Medium|Low|Info) RSA-/gm)?.length ?? 0;
+}
+
+function countMarkdownHeadings(markdown: string, prefix: string): number {
+  return markdown.match(new RegExp(`^${escapeRegExp(prefix)} `, "gm"))?.length ?? 0;
 }
 
 async function withMcpClient(callback: (client: Client) => Promise<void>): Promise<void> {

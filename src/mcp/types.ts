@@ -13,13 +13,15 @@ export const mcpToolNames = [
 export type McpToolName = (typeof mcpToolNames)[number];
 export type OutputFormat = "json" | "markdown";
 export type PathMode = "relative" | "absolute";
-export type DiffReportMode = "full" | "compact";
+export type ReportMode = "full" | "compact";
+export type DiffReportMode = ReportMode;
 export type RiskLevel = "pass" | "warning" | "needs_attention" | "high_risk";
 
 export interface RustAuditProjectInput {
   projectPath: string;
   outputFormat?: OutputFormat | undefined;
   pathMode?: PathMode | undefined;
+  reportMode?: ReportMode | undefined;
   includeSuppressed?: boolean | undefined;
 }
 
@@ -28,12 +30,14 @@ export interface RustAuditUnsafeInput {
   includeDocumentedUnsafe?: boolean | undefined;
   outputFormat?: OutputFormat | undefined;
   pathMode?: PathMode | undefined;
+  reportMode?: ReportMode | undefined;
 }
 
 export interface RustAuditDependenciesInput {
   projectPath: string;
   outputFormat?: OutputFormat | undefined;
   pathMode?: PathMode | undefined;
+  reportMode?: ReportMode | undefined;
 }
 
 export interface RustReviewCurrentDiffInput {

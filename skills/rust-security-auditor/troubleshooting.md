@@ -55,6 +55,8 @@ Remember that current diff review is file-level. It scans findings in diff-affec
 
 Interpret findings using both severity and confidence. Low-confidence findings are manual-review targets, not confirmed vulnerabilities. If code is intentionally risky and reviewed, recommend a narrow inline suppression for the specific `ruleId` only when the user asks how to handle accepted noise or the tool returns `recommendedAction: "suppress_if_accepted"`.
 
+For generated Markdown, keep `pathMode: "relative"` unless the user explicitly wants local absolute paths. For `rust_audit_project`, `rust_audit_unsafe`, and `rust_audit_dependencies`, use `reportMode: "compact"` for day-to-day developer handoff and `reportMode: "full"` only when complete evidence, suggested fixes/tests, or suppression details are needed. Compact reports keep JSON findings complete; they only shorten the Markdown.
+
 ## Suppression Is Missing Or Ignored
 
 Use the formal accepted-risk format:

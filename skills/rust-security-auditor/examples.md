@@ -71,7 +71,9 @@ User:
 Expected behavior:
 
 - Call `rust_audit_unsafe`.
+- Use compact Markdown by default when the user wants a report; full mode is only for complete evidence/details.
 - Focus on unsafe blocks, `unsafe fn`, FFI, raw pointers, initialization APIs, and unsafe Send/Sync impls.
+- Use the compact unsafe-site/function grouping instead of repeating every primitive as a long standalone block.
 - Explain the unsafe invariant each finding points at.
 - Distinguish documented unsafe from undocumented unsafe when the tool evidence supports it.
 - Output manual-review questions for invariants Codex cannot prove.
@@ -82,8 +84,8 @@ Expected Codex response shape:
 Overall risk: needs_attention
 
 Manual review needed:
-- RSA-UNSAFE-BLOCK at src/lib.rs:21 requires confirmation that the raw pointer is non-null, aligned, valid for reads, and not aliased mutably.
-- RSA-FFI-EXTERN-C at src/ffi.rs:8 requires confirmation of ownership, lifetime, nullability, and unwind behavior across the C ABI.
+- Unsafe block at src/lib.rs:21: confirm the raw pointer is non-null, aligned, valid for reads, and not aliased mutably.
+- FFI boundary at src/ffi.rs:8: confirm ownership, lifetime, nullability, allocator, and unwind behavior across the C ABI.
 
 Recommended fixes:
 - Add or tighten SAFETY comments that state the caller and callee invariants.
@@ -104,8 +106,10 @@ User:
 Expected behavior:
 
 - Call `rust_audit_dependencies`.
+- Use compact Markdown by default when the user wants a report; it should read like a supply-chain checklist.
 - Focus on `Cargo.toml`, `Cargo.lock`, `build.rs`, `git` dependencies, `path` dependencies, proc macros, and `[build-dependencies]`.
 - Highlight build-time execution and dependency source trust boundaries.
+- Tell the user to run `cargo audit` separately for vulnerability database checks.
 - Avoid generic dependency update advice unless tied to a returned finding.
 
 Expected Codex response shape:
@@ -122,6 +126,7 @@ Manual review needed:
 - RSA-BUILD-SCRIPT flags build.rs. Confirm build-time behavior and inputs.
 
 Recommended fixes:
+- Run cargo audit separately for known vulnerable crate advisories.
 - Pin git dependencies to a specific revision.
 - Prefer registry releases when feasible.
 - Keep build script behavior minimal and documented.
@@ -138,7 +143,9 @@ User:
 Expected behavior:
 
 - Call `rust_audit_project`.
+- Use compact Markdown by default for developer handoff; request `reportMode: "full"` only for a complete audit appendix.
 - Produce a pre-release summary, risk level, blocking findings, recommended fixes, and manual-review items.
+- Do not expand every finding in the first response; use the compact top findings, grouped counts, and high-priority areas.
 - State that the scan is heuristic and local, not a proof of security.
 - Include suppression guidance only for intentionally accepted findings.
 
@@ -156,6 +163,11 @@ Recommended fixes:
 Manual review needed:
 - Review unsafe and FFI findings for documented invariants.
 - Review Cargo git/path dependencies and build dependencies for supply-chain trust.
+
+Suggested next audits:
+- Run rust_audit_unsafe for grouped unsafe invariant review.
+- Run rust_audit_dependencies for build.rs and dependency trust review.
+- Run rust_review_current_diff before committing new changes.
 
 False positives / suppressions:
 - If a finding is intentional and reviewed, use a narrow inline suppression for the specific rule id with a required reason and preferably owner, ticket, and until.

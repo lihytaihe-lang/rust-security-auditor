@@ -13,7 +13,12 @@ import {
   summarizeDiffReviewMetrics,
   withDiffReviewActionability
 } from "./reviewDecision.js";
-import { contextForLine, extractRustContextForDiffFiles, type RustFileContext } from "./rustContext.js";
+import {
+  contextForLine,
+  extractRustContextForDiffFiles,
+  extractRustContextForProjectFiles,
+  type RustFileContext
+} from "./rustContext.js";
 import {
   type DiffAwareFinding,
   type DiffReportMode,
@@ -22,6 +27,7 @@ import {
   type DiffReviewMode,
   type FindingDiffContext,
   type PathMode,
+  type ReportMode,
   type AcceptedRisk,
   type AcceptedRiskInventorySummary,
   type AcceptedRiskInventoryToolOutput,
@@ -72,6 +78,8 @@ export async function callRustAuditTool(
 export async function rustAuditProject(input: RustAuditProjectInput): Promise<McpAuditToolOutput> {
   return await runTool("rust_audit_project", input.projectPath, async () => {
     const projectPath = await resolveRustProjectPath(input.projectPath);
+    const pathMode = normalizePathMode(input.pathMode);
+    const reportMode = normalizeReportMode(input.reportMode);
     const scan = await scanRustProject({
       workspacePath: projectPath,
       includeSuppressed: input.includeSuppressed === true
@@ -84,7 +92,8 @@ export async function rustAuditProject(input: RustAuditProjectInput): Promise<Mc
       suppressedCount: scan.suppressedCount ?? 0,
       suppressedFindings: scan.suppressedFindings ?? [],
       outputFormat: input.outputFormat,
-      pathMode: normalizePathMode(input.pathMode),
+      pathMode,
+      reportMode,
       title: "Rust Project Security Audit",
       warnings: scan.warnings
     });
@@ -94,6 +103,8 @@ export async function rustAuditProject(input: RustAuditProjectInput): Promise<Mc
 export async function rustAuditUnsafe(input: RustAuditUnsafeInput): Promise<McpAuditToolOutput> {
   return await runTool("rust_audit_unsafe", input.projectPath, async () => {
     const projectPath = await resolveRustProjectPath(input.projectPath);
+    const pathMode = normalizePathMode(input.pathMode);
+    const reportMode = normalizeReportMode(input.reportMode);
     const projectResult = await new ProjectScanner().scan({ workspacePath: projectPath });
     const unsafeResult = await new UnsafeScanner().scan({
       workspacePath: projectPath,
@@ -103,6 +114,10 @@ export async function rustAuditUnsafe(input: RustAuditUnsafeInput): Promise<McpA
     const findings = unsafeResult.findings
       .filter(isUnsafeOrFfiFinding)
       .filter((finding) => includeDocumentedUnsafe || !isDocumentedUnsafeFinding(finding));
+    const rustContexts =
+      input.outputFormat === "markdown" && reportMode === "compact"
+        ? await extractRustContextForProjectFiles(projectPath, projectResult.project.rustSourceFiles.map((file) => file.file))
+        : undefined;
 
     return buildToolOutput({
       tool: "rust_audit_unsafe",
@@ -111,7 +126,9 @@ export async function rustAuditUnsafe(input: RustAuditUnsafeInput): Promise<McpA
       suppressedCount: unsafeResult.suppressedCount ?? 0,
       suppressedFindings: unsafeResult.suppressedFindings ?? [],
       outputFormat: input.outputFormat,
-      pathMode: normalizePathMode(input.pathMode),
+      pathMode,
+      reportMode,
+      rustContexts,
       title: "Rust Unsafe And FFI Audit",
       warnings: [...projectResult.warnings, ...unsafeResult.warnings]
     });
@@ -121,6 +138,8 @@ export async function rustAuditUnsafe(input: RustAuditUnsafeInput): Promise<McpA
 export async function rustAuditDependencies(input: RustAuditDependenciesInput): Promise<McpAuditToolOutput> {
   return await runTool("rust_audit_dependencies", input.projectPath, async () => {
     const projectPath = await resolveRustProjectPath(input.projectPath);
+    const pathMode = normalizePathMode(input.pathMode);
+    const reportMode = normalizeReportMode(input.reportMode);
     const projectResult = await new ProjectScanner().scan({ workspacePath: projectPath });
     const dependencyResult = await new DependencyScanner().scan({
       workspacePath: projectPath,
@@ -135,7 +154,8 @@ export async function rustAuditDependencies(input: RustAuditDependenciesInput): 
       suppressedCount: dependencyResult.suppressedCount ?? 0,
       suppressedFindings: dependencyResult.suppressedFindings ?? [],
       outputFormat: input.outputFormat,
-      pathMode: normalizePathMode(input.pathMode),
+      pathMode,
+      reportMode,
       title: "Rust Dependency And Supply-Chain Audit",
       warnings: [...projectResult.warnings, ...dependencyResult.warnings]
     });
@@ -289,7 +309,7 @@ function normalizePathMode(value: PathMode | undefined): PathMode {
   throw new McpToolInputError("INVALID_PATH_MODE", "pathMode must be either relative or absolute.");
 }
 
-function normalizeReportMode(value: DiffReportMode | undefined): DiffReportMode {
+function normalizeReportMode(value: ReportMode | undefined): ReportMode {
   if (value === undefined || value === "compact") return "compact";
   if (value === "full") return "full";
   throw new McpToolInputError("INVALID_REPORT_MODE", "reportMode must be either compact or full.");
@@ -357,6 +377,8 @@ function buildToolOutput(input: {
   suppressedFindings?: readonly SuppressedFinding[] | undefined;
   outputFormat?: OutputFormat | undefined;
   pathMode: PathMode;
+  reportMode: ReportMode;
+  rustContexts?: ReadonlyMap<string, RustFileContext> | undefined;
   title: string;
   warnings: readonly string[];
   diffAffectedFiles?: readonly string[] | undefined;
@@ -369,6 +391,7 @@ function buildToolOutput(input: {
   };
   const jsonReport = toJsonReport(reportInput);
   const findings = jsonReport.findings;
+  const suppressedFindings = input.suppressedFindings ?? [];
   const output: McpAuditToolOutput = {
     tool: input.tool,
     projectPath: input.projectPath,
@@ -377,7 +400,25 @@ function buildToolOutput(input: {
   };
 
   if (input.outputFormat === "markdown") {
-    output.reportMarkdown = renderMarkdownReport(toMarkdownReportInput(reportInput, input.projectPath, input.pathMode));
+    output.reportMarkdown =
+      input.reportMode === "full"
+        ? renderFullAuditMarkdown({
+            reportInput,
+            projectPath: input.projectPath,
+            pathMode: input.pathMode,
+            suppressedFindings,
+            suppressionSummary: summarizeSuppressions(suppressedFindings)
+          })
+        : renderCompactAuditMarkdown({
+            tool: input.tool,
+            projectPath: input.projectPath,
+            pathMode: input.pathMode,
+            summary: output.summary,
+            findings,
+            suppressedFindings,
+            warnings: input.warnings,
+            rustContexts: input.rustContexts
+          });
   }
 
   if (input.warnings.length > 0) {
@@ -388,11 +429,539 @@ function buildToolOutput(input: {
     output.diffAffectedFiles = [...input.diffAffectedFiles];
   }
 
-  if (input.suppressedFindings !== undefined && input.suppressedFindings.length > 0) {
-    output.suppressedFindings = [...input.suppressedFindings];
+  if (suppressedFindings.length > 0) {
+    output.suppressedFindings = [...suppressedFindings];
   }
 
   return output;
+}
+
+function renderFullAuditMarkdown(input: {
+  reportInput: AuditReportInput;
+  projectPath: string;
+  pathMode: PathMode;
+  suppressedFindings: readonly SuppressedFinding[];
+  suppressionSummary: SuppressionSummary;
+}): string {
+  const lines = renderMarkdownReport(toMarkdownReportInput(input.reportInput, input.projectPath, input.pathMode))
+    .trimEnd()
+    .split("\n");
+
+  if (input.suppressedFindings.length > 0) {
+    appendSuppressedRisks(
+      lines,
+      input.suppressedFindings,
+      input.suppressionSummary,
+      input.projectPath,
+      input.pathMode
+    );
+  }
+
+  return `${lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd()}\n`;
+}
+
+function renderCompactAuditMarkdown(input: {
+  tool: McpToolName;
+  projectPath: string;
+  pathMode: PathMode;
+  summary: McpAuditSummary;
+  findings: readonly Finding[];
+  suppressedFindings: readonly SuppressedFinding[];
+  warnings: readonly string[];
+  rustContexts?: ReadonlyMap<string, RustFileContext> | undefined;
+}): string {
+  switch (input.tool) {
+    case "rust_audit_unsafe":
+      return renderCompactUnsafeAuditMarkdown(input);
+    case "rust_audit_dependencies":
+      return renderCompactDependencyAuditMarkdown(input);
+    case "rust_audit_project":
+      return renderCompactProjectAuditMarkdown(input);
+    case "rust_review_current_diff":
+    case "rust_list_accepted_risks":
+      throw new Error(`compact non-diff renderer does not support ${input.tool}`);
+  }
+}
+
+function renderCompactProjectAuditMarkdown(input: {
+  projectPath: string;
+  pathMode: PathMode;
+  summary: McpAuditSummary;
+  findings: readonly Finding[];
+  suppressedFindings: readonly SuppressedFinding[];
+  warnings: readonly string[];
+}): string {
+  const lines: string[] = [
+    "# Rust Security Audit",
+    "",
+    "## Decision / Risk Level",
+    "",
+    `- riskLevel: ${input.summary.riskLevel}`,
+    `- findingCount: ${input.summary.findingCount}`,
+    `- High/medium/low: ${input.summary.severityCounts.high}/${input.summary.severityCounts.medium}/${input.summary.severityCounts.low}`,
+    `- Critical/info: ${input.summary.severityCounts.critical}/${input.summary.severityCounts.info}`,
+    `- Suppressed findings: ${input.summary.suppressedCount}`,
+    `- Scope: ${formatProjectScope(input.projectPath, input.pathMode)}`
+  ];
+
+  appendTopFindings(lines, input.findings, input.projectPath, input.pathMode, 5, 5);
+  appendGroupedFindings(lines, input.findings);
+  appendProjectPriorityAreas(lines, input.summary);
+
+  lines.push(
+    "",
+    "## Recommended Next Actions",
+    "",
+    "- Fix high or critical findings first, especially build-time command execution.",
+    "- Manually review unsafe and FFI sites for pointer, aliasing, ownership, and unwind invariants.",
+    "- Audit `build.rs` and build-time dependency trust before release handoff.",
+    "- Review accepted risks with `rust_list_accepted_risks` when suppressions are present.",
+    "- Suggested next audits: `rust_audit_unsafe`, `rust_audit_dependencies`, `rust_review_current_diff`, `rust_list_accepted_risks`."
+  );
+
+  lines.push(
+    "",
+    "## Suggested Codex Review Prompts",
+    "",
+    "- Run `rust_audit_unsafe` for this project and group unsafe findings by function/site; review pointer validity, aliasing, ownership transfer, Send/Sync invariants, and FFI boundaries.",
+    "- Run `rust_audit_dependencies` and review build.rs command execution, git/path dependencies, build dependencies, and proc-macro trust boundaries.",
+    "- Review the top project audit findings and propose the smallest safe fixes for high severity items before broader refactors."
+  );
+
+  appendCompactHiddenDetails(lines, input.findings);
+  appendCompactLimitations(lines, input.warnings);
+  return formatMarkdown(lines);
+}
+
+function appendProjectPriorityAreas(lines: string[], summary: McpAuditSummary): void {
+  const unsafeAndFfi = summary.categoryCounts.unsafe + summary.categoryCounts.ffi + summary.categoryCounts.concurrency;
+  const supplyChain =
+    summary.categoryCounts.dependency + summary.categoryCounts.supply_chain + summary.categoryCounts.command_execution;
+
+  lines.push("", "## High-Priority Areas", "");
+  lines.push(`- Build scripts / command execution: ${summary.categoryCounts.command_execution}`);
+  lines.push(`- Unsafe / FFI / concurrency: ${unsafeAndFfi}`);
+  lines.push(`- Dependencies / supply-chain: ${supplyChain}`);
+}
+
+function renderCompactUnsafeAuditMarkdown(input: {
+  projectPath: string;
+  pathMode: PathMode;
+  summary: McpAuditSummary;
+  findings: readonly Finding[];
+  suppressedFindings: readonly SuppressedFinding[];
+  warnings: readonly string[];
+  rustContexts?: ReadonlyMap<string, RustFileContext> | undefined;
+}): string {
+  const unsafeImplCount = countRule(input.findings, "RSA-UNSAFE-IMPL-SEND") + countRule(input.findings, "RSA-UNSAFE-IMPL-SYNC");
+  const rawMemoryPrimitiveCount = countRules(input.findings, [
+    "RSA-UNSAFE-TRANSMUTE",
+    "RSA-UNSAFE-MAYBEUNINIT",
+    "RSA-UNSAFE-FROM-RAW-PARTS",
+    "RSA-UNSAFE-SET-LEN",
+    "RSA-UNSAFE-BOX-FROM-RAW"
+  ]);
+  const lines: string[] = [
+    "# Rust Unsafe Audit",
+    "",
+    "## Summary",
+    "",
+    `- riskLevel: ${input.summary.riskLevel}`,
+    `- findingCount: ${input.summary.findingCount}`,
+    `- unsafe blocks: ${countRule(input.findings, "RSA-UNSAFE-BLOCK")}`,
+    `- unsafe fn: ${countRule(input.findings, "RSA-UNSAFE-FN")}`,
+    `- unsafe impl Send/Sync: ${unsafeImplCount}`,
+    `- FFI: ${countRule(input.findings, "RSA-FFI-EXTERN-C")}`,
+    `- raw memory primitives: ${rawMemoryPrimitiveCount}`,
+    `- Scope: ${formatProjectScope(input.projectPath, input.pathMode)}`
+  ];
+
+  appendUnsafeSitesToReview(lines, {
+    findings: input.findings,
+    projectPath: input.projectPath,
+    pathMode: input.pathMode,
+    rustContexts: input.rustContexts
+  });
+  appendUnsafeManualReview(lines);
+
+  lines.push(
+    "",
+    "## Suggested Codex Review Prompts",
+    "",
+    "- Review the unsafe sites above. For each site, state the safety invariant, who must uphold it, and whether the current code checks it locally.",
+    "- For raw pointer and slice construction findings, verify pointer validity, alignment, lifetime, length bounds, and aliasing before proposing fixes.",
+    "- For `unsafe impl Send` or `unsafe impl Sync`, explain the thread-safety invariant and identify all interior mutability or raw pointer state.",
+    "- For FFI findings, review nullability, ownership transfer, panic/unwind behavior, and allocator boundaries across the C ABI."
+  );
+
+  appendCompactHiddenDetails(lines, input.findings);
+  appendCompactLimitations(lines, input.warnings);
+  return formatMarkdown(lines);
+}
+
+interface UnsafeCompactReviewGroup {
+  id: string;
+  file: string;
+  startLine?: number | undefined;
+  endLine?: number | undefined;
+  functionName?: string | undefined;
+  siteKind?: UnsafeSiteContext["kind"] | undefined;
+  findings: Finding[];
+}
+
+function appendUnsafeSitesToReview(
+  lines: string[],
+  input: {
+    findings: readonly Finding[];
+    projectPath: string;
+    pathMode: PathMode;
+    rustContexts?: ReadonlyMap<string, RustFileContext> | undefined;
+  }
+): void {
+  lines.push("", "## Unsafe Sites to Review", "");
+
+  if (input.findings.length === 0) {
+    lines.push("No unsafe, FFI, raw-memory, or unsafe Send/Sync findings were reported.");
+    return;
+  }
+
+  for (const group of buildUnsafeCompactReviewGroups(input.findings, input.rustContexts)) {
+    const location = formatDisplayLocation(group.file, group.startLine, group.endLine, input.projectPath, input.pathMode);
+    const title = group.siteKind === undefined ? `Review site at ${location}` : `${unsafeSiteKindLabel(group.siteKind)} at ${location}`;
+    lines.push(`### ${title}`, "");
+    lines.push(`- Location: \`${location}\``);
+    lines.push(`- Function/context: ${group.functionName === undefined ? "unknown" : `\`${group.functionName}\``}`);
+    lines.push(`- Rules: ${formatRuleCounts(group.findings)}`);
+    lines.push("- Findings:");
+    for (const finding of group.findings) {
+      lines.push(`  - ${conciseFindingLabel(finding)} (${finding.ruleId}, ${finding.severity}/${finding.confidence})`);
+    }
+    lines.push("");
+  }
+}
+
+function buildUnsafeCompactReviewGroups(
+  findings: readonly Finding[],
+  rustContexts: ReadonlyMap<string, RustFileContext> | undefined
+): UnsafeCompactReviewGroup[] {
+  const groups = new Map<string, UnsafeCompactReviewGroup>();
+
+  for (const finding of findings) {
+    const context = contextForLine(rustContexts?.get(finding.file), finding.startLine);
+    const site = context.unsafeSite;
+    const functionContext = context.functionContext;
+    const id =
+      site !== undefined
+        ? `site:${finding.file}:${site.kind}:${site.startLine}:${site.endLine ?? site.startLine}`
+        : functionContext !== undefined
+          ? `fn:${finding.file}:${functionContext.name}:${functionContext.startLine}:${functionContext.endLine ?? functionContext.startLine}`
+          : `finding:${finding.file}:${finding.startLine ?? 0}:${finding.ruleId}`;
+    const existing = groups.get(id);
+
+    if (existing !== undefined) {
+      existing.findings.push(finding);
+      continue;
+    }
+
+    const group: UnsafeCompactReviewGroup = {
+      id,
+      file: finding.file,
+      startLine: site?.startLine ?? functionContext?.startLine ?? finding.startLine,
+      endLine: site?.endLine ?? functionContext?.endLine ?? finding.endLine,
+      functionName: site?.functionName ?? functionContext?.name,
+      siteKind: site?.kind,
+      findings: [finding]
+    };
+    groups.set(id, group);
+  }
+
+  return [...groups.values()].sort((left, right) => {
+    const fileOrder = left.file.localeCompare(right.file);
+    if (fileOrder !== 0) return fileOrder;
+    return (left.startLine ?? 0) - (right.startLine ?? 0);
+  });
+}
+
+function appendUnsafeManualReview(lines: string[]): void {
+  lines.push(
+    "",
+    "## Required Manual Review",
+    "",
+    "- Pointer validity: confirm raw pointers are non-null when required, aligned, live for the full access, and valid for the requested length.",
+    "- Aliasing: confirm mutable and shared references cannot overlap in ways Rust would normally reject.",
+    "- Ownership transfer: confirm `Box::from_raw` and FFI handoffs transfer ownership exactly once and use the matching allocator.",
+    "- Send/Sync invariants: confirm shared or moved state is synchronized and remains valid across thread boundaries.",
+    "- FFI null/ownership boundary: confirm C callers understand nullability, lifetime, allocator, and panic/unwind rules."
+  );
+}
+
+function unsafeSiteKindLabel(kind: UnsafeSiteContext["kind"]): string {
+  switch (kind) {
+    case "unsafe_block":
+      return "Unsafe block";
+    case "unsafe_fn":
+      return "Unsafe function";
+    case "unsafe_impl":
+      return "Unsafe impl";
+    case "extern_c":
+      return "FFI boundary";
+  }
+}
+
+function renderCompactDependencyAuditMarkdown(input: {
+  projectPath: string;
+  pathMode: PathMode;
+  summary: McpAuditSummary;
+  findings: readonly Finding[];
+  suppressedFindings: readonly SuppressedFinding[];
+  warnings: readonly string[];
+}): string {
+  const lines: string[] = [
+    "# Rust Dependency & Supply Chain Audit",
+    "",
+    "## Summary",
+    "",
+    `- riskLevel: ${input.summary.riskLevel}`,
+    `- findingCount: ${input.summary.findingCount}`,
+    `- git dependencies: ${countRule(input.findings, "RSA-DEP-GIT")}`,
+    `- path dependencies: ${countRule(input.findings, "RSA-DEP-PATH")}`,
+    `- build scripts: ${countRule(input.findings, "RSA-BUILD-SCRIPT")}`,
+    `- proc macros: ${countRule(input.findings, "RSA-DEP-PROC-MACRO")}`,
+    `- build dependencies: ${countRule(input.findings, "RSA-DEP-BUILD-DEPENDENCIES")}`,
+    `- lockfile git sources: ${countRule(input.findings, "RSA-DEP-LOCK-GIT")}`,
+    `- build.rs command execution: ${countRule(input.findings, "RSA-BUILD-COMMAND")}`,
+    `- Scope: ${formatProjectScope(input.projectPath, input.pathMode)}`
+  ];
+
+  appendDependencyPriorityItems(lines, input.findings, input.projectPath, input.pathMode);
+  appendDependencyChecklist(lines, input.findings);
+
+  lines.push(
+    "",
+    "## Recommended Actions",
+    "",
+    "- Run `cargo audit` separately; this tool does not replace vulnerability database checks.",
+    "- Review `build.rs` manually, especially filesystem, environment, network, and command execution behavior.",
+    "- Pin and review git dependencies; prefer crates.io releases when practical.",
+    "- Check proc-macro and build-dependency trust boundaries because they execute during compilation."
+  );
+
+  lines.push(
+    "",
+    "## Suggested Codex Review Prompts",
+    "",
+    "- Review all `build.rs` findings and explain whether command execution, environment access, or generated artifacts can be influenced by untrusted input.",
+    "- Review git and lockfile git dependency findings; confirm repository ownership, immutable revision pinning, and release provenance.",
+    "- Review proc-macro and build-dependency findings as compile-time code execution trust boundaries and propose a minimal verification checklist."
+  );
+
+  appendCompactHiddenDetails(lines, input.findings);
+  appendCompactLimitations(lines, input.warnings);
+  return formatMarkdown(lines);
+}
+
+function appendDependencyPriorityItems(
+  lines: string[],
+  findings: readonly Finding[],
+  projectPath: string,
+  pathMode: PathMode
+): void {
+  const priorityRules = new Set([
+    "RSA-BUILD-COMMAND",
+    "RSA-DEP-GIT",
+    "RSA-DEP-LOCK-GIT",
+    "RSA-DEP-PROC-MACRO",
+    "RSA-DEP-BUILD-DEPENDENCIES",
+    "RSA-BUILD-SCRIPT"
+  ]);
+  const priorityFindings = findings.filter((finding) => priorityRules.has(finding.ruleId)).slice(0, 10);
+
+  lines.push("", "## High Priority Review Items", "");
+
+  if (priorityFindings.length === 0) {
+    lines.push("No build-script command execution, git dependency, proc-macro, or build-dependency findings were reported.");
+    return;
+  }
+
+  for (const finding of priorityFindings) {
+    lines.push(`- ${formatCompactFindingLine(finding, projectPath, pathMode)}`);
+  }
+
+  const hidden = findings.filter((finding) => priorityRules.has(finding.ruleId)).length - priorityFindings.length;
+  if (hidden > 0) {
+    lines.push(`- ${hidden} additional high-priority review item(s) hidden from compact output.`);
+  }
+}
+
+function appendDependencyChecklist(lines: string[], findings: readonly Finding[]): void {
+  lines.push(
+    "",
+    "## Supply-Chain Checklist",
+    "",
+    `- build.rs command execution: ${countRule(findings, "RSA-BUILD-COMMAND")}`,
+    `- build.rs presence: ${countRule(findings, "RSA-BUILD-SCRIPT")}`,
+    `- git dependencies: ${countRule(findings, "RSA-DEP-GIT")}`,
+    `- lockfile git sources: ${countRule(findings, "RSA-DEP-LOCK-GIT")}`,
+    `- proc macro crates: ${countRule(findings, "RSA-DEP-PROC-MACRO")}`,
+    `- build dependencies: ${countRule(findings, "RSA-DEP-BUILD-DEPENDENCIES")}`,
+    `- path dependencies: ${countRule(findings, "RSA-DEP-PATH")}`
+  );
+}
+
+function appendTopFindings(
+  lines: string[],
+  findings: readonly Finding[],
+  projectPath: string,
+  pathMode: PathMode,
+  mediumLimit: number,
+  totalLimit?: number | undefined
+): void {
+  const highOrCritical = findings.filter((finding) => finding.severity === "critical" || finding.severity === "high");
+  const mediumSlots =
+    totalLimit === undefined ? mediumLimit : Math.max(0, Math.min(mediumLimit, totalLimit - highOrCritical.length));
+  const medium = findings.filter((finding) => finding.severity === "medium").slice(0, mediumSlots);
+  const topFindings = [...highOrCritical, ...medium];
+
+  lines.push("", "## Top Findings", "");
+
+  if (topFindings.length === 0) {
+    lines.push("No high, critical, or medium findings were reported. Low/info details are hidden in compact mode.");
+    return;
+  }
+
+  for (const finding of topFindings) {
+    lines.push(`- ${formatCompactFindingLine(finding, projectPath, pathMode)}`);
+  }
+
+  const hiddenMedium = findings.filter((finding) => finding.severity === "medium").length - medium.length;
+  const hiddenLowInfo = findings.filter((finding) => finding.severity === "low" || finding.severity === "info").length;
+
+  if (hiddenMedium > 0) {
+    lines.push(`- ${hiddenMedium} additional medium finding(s) hidden from compact output.`);
+  }
+
+  if (hiddenLowInfo > 0) {
+    lines.push(`- ${hiddenLowInfo} low/info finding(s) hidden by default.`);
+  }
+}
+
+function appendGroupedFindings(lines: string[], findings: readonly Finding[]): void {
+  const categoryOrder: readonly Category[] = [
+    "unsafe",
+    "ffi",
+    "dependency",
+    "supply_chain",
+    "command_execution",
+    "concurrency"
+  ];
+  const categoriesToShow = [
+    ...categoryOrder.filter((category) => findings.some((finding) => finding.category === category)),
+    ...categories.filter(
+      (category) => !categoryOrder.includes(category) && findings.some((finding) => finding.category === category)
+    )
+  ];
+
+  lines.push("", "## Grouped Findings", "");
+
+  if (categoriesToShow.length === 0) {
+    lines.push("No findings to group.");
+    return;
+  }
+
+  for (const category of categoriesToShow) {
+    const group = findings.filter((finding) => finding.category === category);
+    lines.push(`### ${displayCategory(category)}`, "");
+    for (const [ruleId, count] of countByRuleId(group)) {
+      lines.push(`- ${ruleId}: ${count}`);
+    }
+    lines.push("");
+  }
+}
+
+function appendCompactHiddenDetails(lines: string[], findings: readonly Finding[]): void {
+  const detailCount = findings.length;
+  lines.push(
+    "",
+    "## Hidden Details",
+    "",
+    `Compact mode keeps the JSON findings complete but hides most per-finding evidence, why-it-matters text, suggested fixes, suggested tests, and low/info details from Markdown. Use \`reportMode: "full"\` to inspect all ${detailCount} finding detail block(s).`
+  );
+}
+
+function appendCompactLimitations(lines: string[], warnings: readonly string[]): void {
+  lines.push(
+    "",
+    "## Limitations",
+    "",
+    "- Heuristic static review, not a release gate or formal security proof.",
+    "- Non-diff audits are not changed-line aware; use `rust_review_current_diff` for commit/PR focus.",
+    "- Findings are review signals and can require human confirmation before code changes."
+  );
+
+  for (const warning of warnings) {
+    lines.push(`- ${warning}`);
+  }
+}
+
+function formatCompactFindingLine(finding: Finding, projectPath: string, pathMode: PathMode): string {
+  return `${titleCase(finding.severity)} ${finding.ruleId} at \`${formatDisplayLocation(
+    finding.file,
+    finding.startLine,
+    finding.endLine,
+    projectPath,
+    pathMode
+  )}\`: ${finding.title} (${displayCategory(finding.category)}, ${finding.confidence} confidence)`;
+}
+
+function formatRuleCounts(findings: readonly Finding[]): string {
+  return countByRuleId(findings)
+    .map(([ruleId, count]) => `${ruleId}: ${count}`)
+    .join(", ");
+}
+
+function countByRuleId(findings: readonly Finding[]): [string, number][] {
+  const counts = new Map<string, number>();
+  for (const finding of findings) {
+    counts.set(finding.ruleId, (counts.get(finding.ruleId) ?? 0) + 1);
+  }
+
+  return [...counts.entries()].sort((left, right) => {
+    const countDelta = right[1] - left[1];
+    if (countDelta !== 0) return countDelta;
+    return left[0].localeCompare(right[0]);
+  });
+}
+
+function countRule(findings: readonly Finding[], ruleId: string): number {
+  return findings.filter((finding) => finding.ruleId === ruleId).length;
+}
+
+function countRules(findings: readonly Finding[], ruleIds: readonly string[]): number {
+  const ruleSet = new Set(ruleIds);
+  return findings.filter((finding) => ruleSet.has(finding.ruleId)).length;
+}
+
+function displayCategory(category: Category): string {
+  switch (category) {
+    case "ffi":
+      return "FFI";
+    case "supply_chain":
+      return "supply-chain";
+    case "command_execution":
+      return "command-execution";
+    case "input_boundary":
+      return "input-boundary";
+    case "panic_dos":
+      return "panic/DoS";
+    case "manual_review":
+      return "manual-review";
+    default:
+      return category;
+  }
+}
+
+function formatMarkdown(lines: readonly string[]): string {
+  return `${lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd()}\n`;
 }
 
 function buildDiffReviewToolOutput(input: {

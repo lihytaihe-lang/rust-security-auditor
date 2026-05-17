@@ -57,9 +57,9 @@ function printUsage(): void {
   node dist/src/mcp/debug.js <tool> --projectPath <path> [--outputFormat json|markdown]
 
 Tools:
-  rust_audit_project [--includeSuppressed true]
-  rust_audit_unsafe [--includeDocumentedUnsafe false]
-  rust_audit_dependencies
+  rust_audit_project [--includeSuppressed true] [--reportMode compact|full] [--pathMode relative|absolute]
+  rust_audit_unsafe [--includeDocumentedUnsafe false] [--reportMode compact|full] [--pathMode relative|absolute]
+  rust_audit_dependencies [--reportMode compact|full] [--pathMode relative|absolute]
   rust_review_current_diff [--baseRef <ref>] [--headRef <ref>] [--staged true] [--includePreExisting true] [--nearChangedLineWindow 3] [--reportMode compact|full] [--pathMode relative|absolute]
   rust_list_accepted_risks --includeExpired true --includeInvalid true [--outputFormat markdown]
 `);
