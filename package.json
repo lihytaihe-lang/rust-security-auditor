@@ -26,6 +26,7 @@
     "mcp": "npm --silent run build && node dist/src/mcp/server.js",
     "mcp:hosted": "npm --silent run build && node dist/src/mcp/hostedServer.js",
     "mcp:call": "npm --silent run build && node dist/src/mcp/debug.js",
+    "smoke:hosted": "npm --silent run build && node dist/scripts/smoke_hosted_mcp.js",
     "test": "npm run build && find dist/test -name '*.test.js' -type f -print0 | xargs -0 node --test",
     "check": "npm run typecheck && npm test && git diff --check",
     "prepack": "npm run build",

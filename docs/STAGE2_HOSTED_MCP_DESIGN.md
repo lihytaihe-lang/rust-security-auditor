@@ -413,6 +413,15 @@ Future GitHub access:
 - Do not retain cloned private repositories.
 - Define retention, deletion, and access-review policy before enabling private repositories.
 
+Stage 2.3 hosted boundary:
+
+- Private repositories are not supported because even read-only private repo access introduces token handling, selected-repository authorization, clone/cache retention, deletion policy, secret redaction, audit logging, and user-consent obligations that are outside this transport validation stage.
+- The hosted prototype does not save source code. It should process bundled fixtures or explicitly pasted short snippets in memory and return only the response.
+- Logs must not record source snippets, full diffs, absolute paths, repository URLs, dependency names that identify private systems, tokens, secrets, auth headers, raw prompts, or stack traces containing sensitive values.
+- `confidence` means pattern-detection confidence: how strongly a heuristic matched a review signal. It is not exploitability confidence, not proof of vulnerability, and not a severity override.
+- User-pasted content is limited to short, intentional snippets for the tools that support pasted snippets. It is not a route for uploading an entire private repository, archive, full diff, lockfile corpus, or proprietary codebase.
+- Fixture demos exercise public bundled examples and report-shape compatibility. Real project review is different: it needs local filesystem/Git context, full workspace layout, feature and dependency context, and human review, so it remains on local stdio MCP / Codex unless a separate hosted access design is approved.
+
 Hosted MCP security:
 
 - Use HTTPS for ChatGPT Developer Mode and future hosted endpoints.
@@ -527,36 +536,43 @@ Does not do:
 - No ChatGPT App UI.
 - No migration of all tools.
 
-### Phase 2.3: Minimal HTTP MCP server skeleton
+### Phase 2.3: Hosted MCP real connection smoke and submission pack
 
 Goal:
 
-- Add a minimal hosted-compatible MCP entry point in a future implementation phase.
+- Verify the hosted `/mcp` endpoint through local HTTP and a temporary HTTPS tunnel, then prepare review-facing submission materials without expanding the privacy surface.
 
 Input:
 
-- Transport spike result.
-- Existing tool registration metadata.
-- Fixture-only data policy.
+- Implemented Stage 2 hosted MCP transport spike.
+- Existing hosted tool registration metadata.
+- Fixture-only data policy and privacy guard behavior.
 
 Output:
 
-- Minimal HTTP MCP server skeleton with `/mcp`.
-- Health endpoint if useful for hosting.
-- CORS and origin handling appropriate for MCP development.
+- `scripts/smoke_hosted_mcp.ts`: MCP protocol smoke test for local and tunneled hosted endpoints.
+- Local and HTTPS tunnel run commands.
+- Stage 2 hosted sample outputs for the four fixture-safe tools.
+- ChatGPT App submission pack skeleton with test prompts, expected responses, privacy notes, and placeholders.
+- Connection notes for ChatGPT Developer Mode or API Playground validation.
 
 Acceptance criteria:
 
-- Runs locally.
-- Supports MCP Inspector.
-- Uses fixtures or public sample data only.
-- Does not affect existing stdio server behavior.
+- `/mcp` is reachable locally.
+- `/mcp` is reachable through a temporary HTTPS tunnel.
+- Tool list contains only the four fixture-safe hosted tools.
+- Every hosted tool returns Markdown content and valid `structuredContent`.
+- Privacy guard rejects absolute paths, private tokens, private repository metadata, and oversized source input.
+- Rejection outputs do not echo sensitive input.
+- Local stdio MCP / Codex workflow remains unchanged.
 
 Does not do:
 
-- No scanner rewrite.
 - No private repo upload.
-- No auth system.
+- No private GitHub connection.
+- No OpenAI API connection.
+- No ChatGPT App UI component.
+- No source upload or complete-source submission.
 
 ### Phase 2.4: Demo fixture tool call through ChatGPT Developer Mode
 
@@ -725,7 +741,7 @@ Recommended decisions:
 
 The best next step is a narrow hosted MCP transport spike that proves `/mcp` connectivity and tool-call shape without expanding the scanner or privacy surface.
 
-## 12. Phase 2.2 Hosted Prototype Runbook
+## 12. Phase 2.3 Hosted Prototype Runbook
 
 ### Local run
 
@@ -739,6 +755,12 @@ Health check:
 
 ```bash
 curl http://127.0.0.1:8787/healthz
+```
+
+MCP protocol smoke:
+
+```bash
+npm run smoke:hosted -- --url http://127.0.0.1:8787/mcp
 ```
 
 MCP Inspector:
@@ -784,7 +806,37 @@ Then allowlist the generated tunnel hostname:
 HOSTED_MCP_ALLOWED_HOSTS=<generated-host>.trycloudflare.com PORT=8787 HOST=127.0.0.1 npm run mcp:hosted
 ```
 
+Example with localtunnel through `npx`:
+
+```bash
+npx --yes localtunnel --port 8787
+```
+
+Then allowlist the generated tunnel hostname, for example:
+
+```bash
+HOSTED_MCP_ALLOWED_HOSTS=<generated-host>.loca.lt PORT=8787 HOST=127.0.0.1 npm run mcp:hosted
+```
+
+Run the smoke test against the HTTPS tunnel:
+
+```bash
+npm run smoke:hosted -- --url https://<generated-host>.loca.lt/mcp
+```
+
 `HOSTED_MCP_ALLOWED_ORIGINS` can be set as a comma-separated list when a client sends an Origin header. The default allows local origins plus ChatGPT origins (`https://chatgpt.com` and `https://chat.openai.com`).
+
+Stage 2.3 local tool availability on this machine:
+
+- `npx` is available, so localtunnel can be run without adding a dependency to this package.
+- `ngrok`, `cloudflared`, and the `lt` binary were not installed in the local shell at the time of validation.
+
+Observed Stage 2.3 tunnel validation:
+
+- Started local server with `HOSTED_MCP_ALLOWED_HOSTS=rsa-stage23-20260518-1840.loca.lt PORT=8787 HOST=127.0.0.1 npm run mcp:hosted`.
+- Started tunnel with `npx --yes localtunnel --port 8787 --subdomain rsa-stage23-20260518-1840`.
+- Verified `https://rsa-stage23-20260518-1840.loca.lt/healthz` returned `status=ok` and the four hosted fixture-safe tools.
+- Verified `npm run smoke:hosted -- --url https://rsa-stage23-20260518-1840.loca.lt/mcp` passed tool list, fixture calls, structured content, and privacy guard checks.
 
 ### ChatGPT Developer Mode connection
 
@@ -797,6 +849,27 @@ HOSTED_MCP_ALLOWED_HOSTS=<generated-host>.trycloudflare.com PORT=8787 HOST=127.0
 7. In a new chat, add the connector from the composer tool menu and ask for one fixture call, for example: "Run the unsafe usage demo fixture."
 
 This follows the OpenAI Apps SDK connection flow documented in "Connect from ChatGPT": https://developers.openai.com/apps-sdk/deploy/connect-chatgpt
+
+### API Playground / Developer Mode validation notes
+
+If an MCP Server tester is available in API Playground or an authenticated ChatGPT Developer Mode session:
+
+1. Use the HTTPS tunnel URL with `/mcp`.
+2. Confirm the server health URL is reachable: `https://<generated-host>/healthz`.
+3. Connect the MCP server.
+4. List tools and verify exactly:
+   - `rust_audit_unsafe`
+   - `rust_audit_dependencies`
+   - `rust_list_accepted_risks`
+   - `rust_review_current_diff`
+5. Run one positive fixture prompt, such as `Run rust_audit_unsafe with fixture_id unsafe_usage`.
+6. Run one negative privacy prompt using a fake token or absolute path and verify the rejection does not echo sensitive input.
+
+Stage 2.3 result for this local validation run:
+
+- ChatGPT Developer Mode was not used because this repository session does not include an authenticated ChatGPT UI session, and the task explicitly disallows connecting OpenAI API credentials.
+- API Playground MCP Server testing was not used for the same reason: it requires an authenticated OpenAI surface outside this local repository workflow.
+- Alternative validation used by Stage 2.3 is the official MCP SDK Streamable HTTP client, local `/healthz` and `/mcp` checks, optional MCP Inspector command, and the HTTPS tunnel smoke script.
 
 ### Current limitations
 
