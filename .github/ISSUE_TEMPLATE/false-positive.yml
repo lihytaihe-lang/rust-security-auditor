@@ -1,0 +1,50 @@
+name: False positive
+description: A finding was reported for code that is not actually a risk
+labels: ["false-positive"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not paste proprietary code. Reduce the case to a minimal synthetic snippet.
+
+        For a vulnerability in this tool itself, follow [SECURITY.md](../blob/main/SECURITY.md) instead.
+  - type: input
+    id: rule-id
+    attributes:
+      label: Rule id
+      placeholder: RSA-UNSAFE-GET-UNCHECKED
+    validations:
+      required: true
+  - type: textarea
+    id: snippet
+    attributes:
+      label: Minimal Rust snippet that triggers it
+      render: rust
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why this is not a real risk
+      description: What makes the pattern safe here? A comment, a string, test-only code, a proven invariant?
+    validations:
+      required: true
+  - type: dropdown
+    id: tool
+    attributes:
+      label: Which tool reported it
+      options:
+        - rust_review_current_diff
+        - rust_audit_unsafe
+        - rust_audit_dependencies
+        - rust_audit_project
+        - rust_list_accepted_risks
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The version reported by the MCP server, or the commit you are running.
+    validations:
+      required: true

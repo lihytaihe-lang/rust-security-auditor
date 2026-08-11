@@ -5,10 +5,8 @@ Thanks for helping improve Rust Security Auditor. The project is currently a loc
 ## Run Checks
 
 ```bash
-npm install
-npm run typecheck
-npm test
-git diff --check
+npm ci
+npm run check     # typecheck + test + whitespace
 ```
 
 Use `npm --silent run mcp` when validating stdio MCP startup. Use `npm run mcp:call -- <tool> ...` for local tool-handler debugging.
@@ -18,13 +16,30 @@ Use `npm --silent run mcp` when validating stdio MCP startup. Use `npm run mcp:c
 Keep rules small, security-specific, and evidence-driven.
 
 1. Add or update rule metadata in `src/scanners/rules.ts`.
-2. Implement the scanner behavior in the narrowest relevant scanner module.
-3. Return concrete file, line, evidence, severity, confidence, and remediation guidance.
-4. Prefer medium or low confidence when the scanner cannot prove the surrounding invariant.
-5. Add focused tests that cover both noisy and positive cases.
-6. Update README and Skill docs when user-visible behavior changes.
+2. Implement the scanner behavior in the narrowest relevant scanner module:
+   - `unsafeScanner.ts` — unsafe, FFI, and raw-memory patterns in Rust source.
+   - `dependencyScanner.ts` — `Cargo.toml`, `Cargo.lock`, `build.rs`, `.cargo/config.toml`.
+   - `sourceRiskScanner.ts` — shipped-code risk that is neither unsafe nor Cargo metadata.
+3. Match against the masked view from `maskRustSource`, never the raw line. `withoutLiterals` is the default; use `withoutComments` only when the pattern legitimately lives inside a string, such as an ABI name. Matching a raw line reintroduces findings inside comments and doc examples.
+4. Return concrete file, line, evidence, severity, confidence, and remediation guidance.
+5. Confidence describes pattern-detection certainty, not exploitability. Prefer medium or low when the pattern itself is ambiguous, not when the risk is uncertain.
+6. Add focused tests covering a true positive, a comment/literal near-miss, and a plausible false positive.
+7. Update the README rule list and the Skill docs when user-visible behavior changes, and add a CHANGELOG entry.
 
 Do not add broad generic code review rules, style rules, or large scanner families as part of a small change.
+
+### Rule Id Prefixes
+
+| Prefix | Scope |
+| --- | --- |
+| `RSA-UNSAFE-` | Unsafe blocks, functions, and raw-memory primitives |
+| `RSA-FFI-` | Foreign function interface boundaries |
+| `RSA-DEP-` | Dependency declarations and resolution |
+| `RSA-BUILD-` | Build scripts and build-time execution |
+| `RSA-CARGO-` | Cargo configuration outside the manifest |
+| `RSA-EXEC-` | Process execution in shipped code |
+
+Rule ids are a public interface: users write them into suppression comments. Renaming one is a breaking change.
 
 ## Add A Fixture
 

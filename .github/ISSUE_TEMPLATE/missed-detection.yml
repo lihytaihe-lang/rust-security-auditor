@@ -1,0 +1,37 @@
+name: Missed detection or new rule
+description: Risky Rust code that the scanner does not flag
+labels: ["rule-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Good rule candidates are specific, evidence-driven, and detectable from source text with lexical context. Rules that need type inference, data-flow, or taint analysis are out of scope for this scanner — see the README.
+
+        Known gap, no need to file: there is no RustSec advisory / CVE lookup. Use `cargo audit` or `cargo deny` for that.
+  - type: textarea
+    id: snippet
+    attributes:
+      label: Rust snippet that should be flagged
+      render: rust
+    validations:
+      required: true
+  - type: textarea
+    id: risk
+    attributes:
+      label: What can go wrong
+      description: The concrete failure — undefined behavior, memory corruption, build-time execution, supply-chain exposure.
+    validations:
+      required: true
+  - type: textarea
+    id: false-positives
+    attributes:
+      label: Where would this pattern be legitimate
+      description: Knowing the safe uses up front is what keeps a new rule from being noisy.
+    validations:
+      required: true
+  - type: textarea
+    id: remediation
+    attributes:
+      label: Suggested fix to recommend
+    validations:
+      required: false

@@ -222,7 +222,7 @@ export function createHostedRustSecurityAuditorMcpServer(): McpServer {
     {
       title: "List hosted demo accepted risks",
       description:
-        "Fixture-safe hosted demo tool. Lists rustsec-auditor accepted-risk suppressions from the accepted_risk_suppression fixture or a short pasted suppression snippet. Does not read local project files.",
+        "Fixture-safe hosted demo tool. Lists accepted-risk suppressions from the accepted_risk_suppression fixture or a short pasted suppression snippet. Does not read local project files.",
       annotations: readOnlyAnnotations,
       inputSchema: hostedAcceptedRiskInputSchema,
       outputSchema: hostedMcpOutputSchema
@@ -393,7 +393,7 @@ export async function hostedRustListAcceptedRisks(input: unknown): Promise<Hoste
       summary,
       findings,
       limitations: [
-        "Suppression inventory is based on rustsec-auditor comments only; it does not prove that accepted risks are still justified.",
+        "Suppression inventory is based on accepted-risk suppression comments only; it does not prove that accepted risks are still justified.",
         "Owners, tickets, and dates in hosted fixtures are public demo metadata."
       ],
       suggestedNextSteps: acceptedRiskNextSteps(acceptedRisks),

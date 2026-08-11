@@ -62,8 +62,8 @@ For generated Markdown, keep `pathMode: "relative"` unless the user explicitly w
 Use the formal accepted-risk format:
 
 ```rust
-// rustsec-auditor: ignore RULE_ID -- reason
-// rustsec-auditor: ignore RULE_ID owner=@name ticket=SEC-123 until=YYYY-MM-DD -- reason
+// rust-security-auditor: ignore RULE_ID -- reason
+// rust-security-auditor: ignore RULE_ID owner=@name ticket=SEC-123 until=YYYY-MM-DD -- reason
 ```
 
 The reason after `--` is required. The rule id must be exact; broad `ignore all` or `ignore *` is not supported. If the directive is missing a reason or uses unsupported metadata, the finding is shown and the result includes `invalidSuppressionCount` plus an `invalidSuppression` explanation in `suppressedFindings`.
@@ -74,7 +74,7 @@ This is expected. When `until=YYYY-MM-DD` is before the current date, the suppre
 
 ## Accepted Risk Inventory Looks Incomplete
 
-`rust_list_accepted_risks` only scans Rust source files under `projectPath` for `rustsec-auditor` suppression comments. It does not run full scanner rules, so it can list suppression records that are not currently attached to a finding. Pass `includeExpired: true` to show expired suppressions and `includeInvalid: true` to show invalid suppressions.
+`rust_list_accepted_risks` only scans Rust source files under `projectPath` for `rust-security-auditor` suppression comments. It does not run full scanner rules, so it can list suppression records that are not currently attached to a finding. Pass `includeExpired: true` to show expired suppressions and `includeInvalid: true` to show invalid suppressions.
 
 ## User Asks For A Full Security Guarantee
 

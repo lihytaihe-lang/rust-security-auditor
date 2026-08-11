@@ -90,20 +90,20 @@ fn main() {
 export const acceptedRiskSuppressionFixture: HostedFixture = {
   id: "accepted_risk_suppression",
   title: "Accepted risk suppression demo fixture",
-  description: "Public Rust comments demonstrating active, expired, and invalid rustsec-auditor suppressions.",
+  description: "Public Rust comments demonstrating active, expired, and invalid accepted-risk suppressions.",
   files: {
     "src/lib.rs": `pub fn active_accepted(ptr: *const u8) -> u8 {
-    // rustsec-auditor: ignore RSA-UNSAFE-BLOCK owner=@security ticket=SEC-101 until=2099-01-01 -- legacy FFI shim accepted for hosted demo
+    // rust-security-auditor: ignore RSA-UNSAFE-BLOCK owner=@security ticket=SEC-101 until=2099-01-01 -- legacy FFI shim accepted for hosted demo
     unsafe { *ptr }
 }
 
 pub fn expired_accepted(ptr: *const u8) -> u8 {
-    // rustsec-auditor: ignore RSA-UNSAFE-BLOCK owner=@security ticket=SEC-102 until=2000-01-01 -- old acceptance that should be revisited
+    // rust-security-auditor: ignore RSA-UNSAFE-BLOCK owner=@security ticket=SEC-102 until=2000-01-01 -- old acceptance that should be revisited
     unsafe { *ptr }
 }
 
 pub fn invalid_accepted(ptr: *const u8) -> u8 {
-    // rustsec-auditor: ignore RSA-UNSAFE-BLOCK owner=
+    // rust-security-auditor: ignore RSA-UNSAFE-BLOCK owner=
     unsafe { *ptr }
 }
 `

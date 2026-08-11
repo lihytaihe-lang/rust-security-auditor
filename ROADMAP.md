@@ -2,9 +2,9 @@
 
 ## Current Stage Alignment
 
-Current true stage as of 2026-08-11: v0.1.1 is a publicly released local-first MCP preview. Stage 2.3 repository-side hosted MCP validation was completed, but Stage 2.4 and any Codex plugin / ChatGPT App publication path remain deferred.
+Current stage as of 2026-08-11: v0.1.2 is a local-first MCP preview distributed on npm. Stage 2.3 repository-side hosted MCP validation was completed, but Stage 2.4 and any Codex plugin / ChatGPT App publication path remain deferred.
 
-Detailed progress tracking lives in `docs/STAGE2_PROGRESS.md`.
+Historical stage tracking lives in `docs/internal/STAGE2_PROGRESS.md`.
 
 ## Public Preview Boundary
 
@@ -19,27 +19,26 @@ It deliberately excludes:
 
 Future hosted or private-code work needs its own product, privacy, security, and maintenance decision. It is not implied by this open-source release.
 
-## v0.1 Local MCP Preview
+## Shipped
 
-- Local stdio MCP server for Codex and other MCP clients.
+- Local stdio MCP server for Claude Code, Codex, and other MCP clients, installable with `npx`.
 - Five read-only MCP tools.
-- Heuristic Rust security scanner kernel.
-- Unsafe/FFI review.
-- Cargo dependency and build-script review.
-- Markdown and JSON report output.
-- Local debug helper with `npm run mcp:call`.
-- Public preview documentation, examples, CI, and contribution/security guidance.
+- Heuristic Rust security scanner kernel with comment and literal awareness.
+- Unsafe/FFI review, Cargo dependency, build-script, and `.cargo/config.toml` review.
+- Changed-line-aware current diff review with review decisions.
+- Accepted-risk suppression workflow and inventory.
+- Markdown and JSON report output in compact and full modes.
+- Documentation, sanitized examples, cross-platform CI, and contribution/security guidance.
 
-## Current Preview Focus
+## Current Focus
 
-- Changed-line-aware current diff review with `rust_review_current_diff`.
-- Accepted-risk inventory with `rust_list_accepted_risks`.
-- Stable example reports in `examples/reports/`.
-- Low-noise local review workflows before commit, before PR, after Codex-generated code, and before accepted-risk review.
+- Precision over coverage: fewer false positives per rule, clear evidence per finding.
+- Low-noise review workflows before commit, before PR, after agent-generated code, and before release.
+- Keeping example reports in `examples/reports/` regenerable via `npm run examples:regenerate`.
 
 ## Stage 2 Hosted MCP Alignment
 
-- Stage 2.0 is complete: the hosted MCP / ChatGPT App prototype design exists in `docs/STAGE2_HOSTED_MCP_DESIGN.md`.
+- Stage 2.0 is complete: the hosted MCP / ChatGPT App prototype design exists in `docs/internal/STAGE2_HOSTED_MCP_DESIGN.md`.
 - Stage 2.1 was merged into the design baseline: official-docs research and architecture confirmation are recorded in the design document.
 - Stage 2.2 was merged into Stage 2.3: the hosted transport spike exists, but the practical milestone is now repository-side hosted MCP validation.
 - Stage 2.3 is complete for repository-side validation:
@@ -52,6 +51,12 @@ Future hosted or private-code work needs its own product, privacy, security, and
 - Stage 2.4 is blocked, not complete: retry is needed in a ChatGPT account, organization, or session where the Developer Mode connector creation entry is visible.
 
 Stage 2.3 completion does not mean hosted deployment, ChatGPT App UI, OpenAI submission, private GitHub access, or private repository scanning.
+
+## Next
+
+- **Known-vulnerability coverage.** The scanner has no RustSec advisory or CVE lookup today, which is the most common expectation the project name sets. The intended shape is an optional integration: detect a local `cargo-audit` or `cargo-deny` installation, run it, and map its results into the existing `Finding` schema so advisories appear alongside heuristic findings; degrade with a clear message when neither tool is installed. Bundling or fetching the advisory database is explicitly not planned — that would turn a local, offline, read-only tool into something that needs network access and database maintenance.
+- Cargo profile and lint review, such as `panic = "abort"` at an FFI boundary and `overflow-checks = false` in release.
+- Reporting `#![forbid(unsafe_code)]` as a positive signal rather than staying silent.
 
 ## Deferred Work
 
