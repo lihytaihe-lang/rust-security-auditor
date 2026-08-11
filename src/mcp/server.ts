@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -13,6 +11,8 @@ import {
   rustReviewCurrentDiff
 } from "./tools.js";
 import type { McpToolOutput } from "./types.js";
+import { isEntryPointModule } from "../utils/paths.js";
+import { serverVersion } from "../version.js";
 
 const outputFormatSchema = z.enum(["json", "markdown"]);
 const pathModeSchema = z.enum(["relative", "absolute"]);
@@ -27,7 +27,7 @@ const readOnlyAnnotations = {
 export function createRustSecurityAuditorMcpServer(): McpServer {
   const server = new McpServer({
     name: "rust-security-auditor",
-    version: "0.1.0"
+    version: serverVersion
   });
 
   server.registerTool(
@@ -170,7 +170,7 @@ export function createRustSecurityAuditorMcpServer(): McpServer {
     {
       title: "List accepted Rust security risks",
       description:
-        "Use before release, during security re-review, when checking whether rustsec-auditor suppressions have expired, or when cleaning up invalid suppression comments. Scans only Rust source files for rustsec-auditor suppression comments and returns an accepted-risk inventory without running the full scanner and without modifying code.",
+        "Use before release, during security re-review, when checking whether accepted-risk suppressions have expired, or when cleaning up invalid suppression comments. Scans only Rust source files for accepted-risk suppression comments and returns an accepted-risk inventory without running the full scanner and without modifying code.",
       annotations: readOnlyAnnotations,
       inputSchema: {
         projectPath: z
@@ -179,10 +179,10 @@ export function createRustSecurityAuditorMcpServer(): McpServer {
           .describe("Absolute or relative local directory for a Rust Cargo project or workspace; only files under this directory are scanned."),
         includeExpired: z
           .boolean()
-          .describe("When true, include expired rustsec-auditor suppression comments in acceptedRisks and the Markdown report."),
+          .describe("When true, include expired accepted-risk suppression comments in acceptedRisks and the Markdown report."),
         includeInvalid: z
           .boolean()
-          .describe("When true, include invalid rustsec-auditor suppression comments in acceptedRisks and the Markdown report."),
+          .describe("When true, include invalid accepted-risk suppression comments in acceptedRisks and the Markdown report."),
         outputFormat: outputFormatSchema.describe("Set to json for structured JSON; set to markdown to include reportMarkdown text for display."),
         pathMode: pathModeSchema
           .optional()
@@ -214,7 +214,7 @@ function toCallToolResult(output: McpToolOutput): CallToolResult {
 }
 
 function isDirectRun(): boolean {
-  return process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+  return isEntryPointModule(import.meta.url);
 }
 
 if (isDirectRun()) {

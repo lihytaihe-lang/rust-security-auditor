@@ -1,12 +1,12 @@
 {
   "name": "rust-security-auditor",
-  "version": "0.1.1",
-  "description": "Local MCP server for focused Rust security review in Codex and MCP clients.",
-  "private": true,
+  "version": "0.1.2",
+  "description": "Local MCP server for focused Rust security review in Claude Code, Codex, and other MCP clients.",
   "type": "module",
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",
   "bin": {
+    "rust-security-auditor": "./dist/src/mcp/server.js",
     "rust-security-auditor-mcp": "./dist/src/mcp/server.js",
     "rust-security-auditor-mcp-call": "./dist/src/mcp/debug.js",
     "rust-security-auditor-hosted-mcp": "./dist/src/mcp/hostedServer.js"
@@ -27,7 +27,8 @@
     "mcp:hosted": "npm --silent run build && node dist/src/mcp/hostedServer.js",
     "mcp:call": "npm --silent run build && node dist/src/mcp/debug.js",
     "smoke:hosted": "npm --silent run build && node dist/scripts/smoke_hosted_mcp.js",
-    "test": "npm run build && find dist/test -name '*.test.js' -type f -print0 | xargs -0 node --test",
+    "examples:regenerate": "npm --silent run build && node scripts/regenerate-examples.mjs",
+    "test": "npm run build && node scripts/run-tests.mjs",
     "check": "npm run typecheck && npm test && git diff --check",
     "prepack": "npm run build",
     "clean": "rm -rf dist"
@@ -37,6 +38,7 @@
     "security",
     "audit",
     "security-audit",
+    "claude-code",
     "codex",
     "mcp",
     "model-context-protocol",
@@ -59,10 +61,14 @@
     "skills/",
     "README.md",
     "LICENSE",
+    "CHANGELOG.md",
     "CONTRIBUTING.md",
     "SECURITY.md",
     "ROADMAP.md"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=20"
   },

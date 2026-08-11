@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { isEntryPointModule } from "../utils/paths.js";
 import {
   createHostedRustSecurityAuditorMcpServer,
   hostedMcpToolNames
@@ -267,7 +266,7 @@ function sanitizeErrorMessage(error: unknown): string {
 }
 
 function isDirectRun(): boolean {
-  return process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+  return isEntryPointModule(import.meta.url);
 }
 
 if (isDirectRun()) {
