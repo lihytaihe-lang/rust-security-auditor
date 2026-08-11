@@ -2,7 +2,9 @@
 
 Date: 2026-05-18
 
-Status: draft skeleton plus Stage 2.4 validation notes. This is not a submission, does not include a ChatGPT App UI component, and does not connect private GitHub repositories or OpenAI API credentials. The 2026-05-18 real ChatGPT Developer Mode attempt was blocked before connector creation because the ChatGPT UI did not expose the documented Create connector entry.
+Status: archived draft skeleton plus Stage 2.4 validation notes. This is not a submission, does not include a ChatGPT App UI component, and does not connect private GitHub repositories or OpenAI API credentials. The 2026-05-18 real ChatGPT Developer Mode attempt was blocked before connector creation because the ChatGPT UI did not expose the documented Create connector entry.
+
+This document is not an active submission pack or public-release checklist. It is retained only as historical context for the fixture-safe hosted MCP prototype and the blocked ChatGPT Developer Mode validation attempt. The v0.1.1 open-source local MCP preview does not include this submission path.
 
 ## App Name Draft
 
@@ -89,6 +91,40 @@ Next recommendation:
 - Do not move to Stage 2.5 yet.
 - Retry Stage 2.4 in a ChatGPT account, organization, or session where the Developer Mode Create connector entry is visible.
 - Keep v0.1.1 positioned as a local-first MCP preview with a fixture-safe hosted prototype until real ChatGPT connector creation, tool listing, and tool call validation succeed.
+
+## 2026-06-17 Repository-Side Retry Preflight
+
+This was a repository-side readiness pass only. It did not create a ChatGPT connector, submit an app, deploy a stable endpoint, connect private GitHub, or upload private source.
+
+Maintenance evidence:
+
+- `npm audit` passed with 0 vulnerabilities after updating transitive `hono` to `4.12.25`.
+- `npm outdated` returned no outdated packages after updating `@types/node` to `25.9.3`.
+- `.zhenvis/` is ignored as a local run artifact.
+
+Smoke evidence:
+
+- `npm run check` passed.
+- Local hosted smoke passed against `http://127.0.0.1:8787/mcp`.
+- Temporary HTTPS smoke passed against `https://legal-hotels-sit.loca.lt/mcp`.
+- Tool list over HTTPS returned exactly:
+  - `rust_audit_dependencies`
+  - `rust_audit_unsafe`
+  - `rust_list_accepted_risks`
+  - `rust_review_current_diff`
+- Fixture-safe HTTPS tool calls succeeded:
+  - `rust_audit_unsafe`: `needs_attention`, 9 findings
+  - `rust_audit_dependencies`: `high_risk`, 6 findings
+  - `rust_list_accepted_risks`: `needs_attention`, 3 findings
+  - `rust_review_current_diff`: `needs_attention`, 3 findings
+- Privacy guard passed for absolute path, private token, oversized source, and redacted error behavior.
+
+Remaining Stage 2.4 evidence gap:
+
+- No real ChatGPT connector was created in this pass.
+- ChatGPT did not list tools in this pass.
+- No ChatGPT-originated tool call occurred in this pass.
+- The temporary tunnel URL should be assumed expired.
 
 ## Tool List
 

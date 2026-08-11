@@ -8,7 +8,11 @@ This document is the current source of truth for Stage 2 progress. It aligns the
 
 The repository is still a v0.1.1 local-first MCP preview, with Stage 2.3 repository-side hosted MCP validation artifacts completed.
 
-The next real gate remains Stage 2.4: a real ChatGPT Developer Mode connection using an HTTPS `/mcp` endpoint. It was attempted on 2026-05-18 with a temporary HTTPS tunnel; the hosted endpoint and smoke validation passed, but ChatGPT connector creation was blocked because the UI did not expose the documented Create connector entry.
+Public-release decision as of 2026-08-11: publish v0.1.1 as an open-source local MCP preview. This does not reopen Stage 2.4, Codex plugin packaging, ChatGPT App submission, hosted deployment, private repository scanning, or market-preparation work; those paths remain deferred.
+
+The former next gate was Stage 2.4: a real ChatGPT Developer Mode connection using an HTTPS `/mcp` endpoint. It was attempted on 2026-05-18 with a temporary HTTPS tunnel; the hosted endpoint and smoke validation passed, but ChatGPT connector creation was blocked because the UI did not expose the documented Create connector entry. This gate is now retained only as historical context.
+
+Do not restart Stage 2.4 or proceed to Stage 2.5 without a separate product decision confirming a viable distribution path, maintenance owner, and privacy / hosting plan.
 
 ## v0.1.1 Current State
 
@@ -151,6 +155,40 @@ Retry focus:
 - After connector creation, open a new chat and explicitly select the connector from `+` -> `More`.
 - Continue to treat Stage 2.5 as blocked until ChatGPT lists the hosted tools and performs at least one real fixture-backed tool invocation.
 
+## 2026-06-17 Repository-Side Retry Preflight
+
+This pass updated only repository-side readiness for another Stage 2.4 attempt. It did not create a ChatGPT connector, change hosted tool scope, add ChatGPT App UI, connect private GitHub, upload source, or deploy a stable hosted service.
+
+Maintenance result:
+
+- `npm audit` is clean after updating the transitive `hono` package from `4.12.19` to `4.12.25`.
+- `npm outdated` is empty after updating `@types/node` from `25.8.0` to `25.9.3`.
+- `.zhenvis/` is ignored as a local run artifact so it does not pollute repository status.
+
+Verification result:
+
+- `npm run check` passed, including typecheck, build, 67 tests, and `git diff --check`.
+- Local hosted smoke passed against `http://127.0.0.1:8787/mcp`.
+- Temporary HTTPS tunnel smoke passed against `https://legal-hotels-sit.loca.lt/mcp`.
+- HTTPS `tools/list` returned exactly:
+  - `rust_audit_dependencies`
+  - `rust_audit_unsafe`
+  - `rust_list_accepted_risks`
+  - `rust_review_current_diff`
+- Fixture-safe HTTPS tool calls succeeded:
+  - `rust_audit_unsafe`: `needs_attention`, 9 findings
+  - `rust_audit_dependencies`: `high_risk`, 6 findings
+  - `rust_list_accepted_risks`: `needs_attention`, 3 findings
+  - `rust_review_current_diff`: `needs_attention`, 3 findings
+- Smoke privacy guard passed for absolute path, private token, oversized source, and redacted error behavior.
+
+Stage 2.4 status after this preflight:
+
+- Repository-side readiness is still good for another ChatGPT Developer Mode retry.
+- The temporary tunnel URL should be treated as expired after the run.
+- Real ChatGPT connector creation, ChatGPT tool listing, and ChatGPT-originated fixture tool invocation were not attempted in this pass because they require an authenticated ChatGPT UI session and explicit operator approval.
+- Stage 2.5 remains blocked until a real ChatGPT session creates the connector, lists the four hosted tools, and invokes at least one fixture-backed hosted tool.
+
 ## Not Completed
 
 The following are explicitly not complete:
@@ -178,7 +216,7 @@ Some of these are intentionally out of scope for Stage 2.3 rather than accidenta
 
 ## Recommended Next Steps
 
-Recommended next step:
+Historical recommendation before the 2026-06-28 pause decision:
 
 1. Keep Stage 2.3 frozen as complete for repository-side validation.
 2. Repeat Stage 2.4 as a narrow ChatGPT Developer Mode validation pass once connector creation is available in the ChatGPT UI.
@@ -187,4 +225,8 @@ Recommended next step:
 5. Capture screenshots or notes from the real ChatGPT connection.
 6. Update this progress document and the submission pack with successful connection evidence or a new blocker.
 
-Do not start ChatGPT App UI, OpenAI submission, private GitHub access, or stable hosted deployment until Stage 2.4 is completed and reviewed.
+Current recommendation after the 2026-08-11 public-preview decision:
+
+1. Support the local MCP preview through reproducible local installation, fixture-backed checks, and issue triage.
+2. Keep hosted and private-code paths out of the public preview.
+3. Do not start ChatGPT App UI, OpenAI submission, private GitHub access, stable hosted deployment, Codex plugin packaging, or marketplace preparation unless those paths are explicitly reopened.

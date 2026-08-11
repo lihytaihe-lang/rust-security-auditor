@@ -2,9 +2,22 @@
 
 ## Current Stage Alignment
 
-Current true stage as of 2026-05-18: v0.1.1 remains the active local-first MCP preview, and Stage 2.3 repository-side hosted MCP validation is complete. The next gate is Stage 2.4, a real ChatGPT Developer Mode connection to an HTTPS `/mcp` endpoint.
+Current true stage as of 2026-08-11: v0.1.1 is a publicly released local-first MCP preview. Stage 2.3 repository-side hosted MCP validation was completed, but Stage 2.4 and any Codex plugin / ChatGPT App publication path remain deferred.
 
 Detailed progress tracking lives in `docs/STAGE2_PROGRESS.md`.
+
+## Public Preview Boundary
+
+This public release is a local stdio MCP preview, not a Codex plugin publication effort or ChatGPT App release candidate.
+
+It deliberately excludes:
+
+- Codex plugin packaging and marketplace distribution.
+- A hosted ChatGPT App, SaaS scanning, or persistent service.
+- Private repository connection, source upload, or any API credential collection.
+- Claims of full static analysis, formal verification, or automatic remediation.
+
+Future hosted or private-code work needs its own product, privacy, security, and maintenance decision. It is not implied by this open-source release.
 
 ## v0.1 Local MCP Preview
 
@@ -40,7 +53,7 @@ Detailed progress tracking lives in `docs/STAGE2_PROGRESS.md`.
 
 Stage 2.3 completion does not mean hosted deployment, ChatGPT App UI, OpenAI submission, private GitHub access, or private repository scanning.
 
-## Future Work
+## Deferred Work
 
 - Stage 2 hosted MCP / ChatGPT App prototype path:
   - v0.1.x local MCP preview.
@@ -52,6 +65,8 @@ Stage 2.3 completion does not mean hosted deployment, ChatGPT App UI, OpenAI sub
 - Release audit report output.
 - Codex plugin packaging.
 - ChatGPT App UI later, not in the local preview.
+
+These items are intentionally deferred by the public-preview boundary above.
 
 ## Non-Goals For This Preview
 
