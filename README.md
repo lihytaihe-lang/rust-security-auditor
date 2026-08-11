@@ -4,6 +4,16 @@ Rust Security Auditor is a local MCP server for focused Rust security review. It
 
 It is designed for first public preview use: quick local installation, clear MCP configuration, deterministic example reports, and a small set of maintainable heuristic checks for Rust security review.
 
+## Current Status
+
+Current true version: v0.1.1 local-first MCP preview.
+
+Public-release decision as of 2026-08-11: publish this v0.1.1 local MCP preview as open source. The release is intentionally limited to local, read-only Rust review; it is not a hosted scanner, Codex plugin, ChatGPT App, or marketplace product.
+
+Completed scope includes the local stdio MCP server, five read-only tools, the TypeScript scanner kernel, Markdown and JSON reports, changed-line-aware diff review, a fixture-safe Hosted MCP prototype, and Stage 2.3 repository-side hosted validation. Stage 2.4 is blocked until a ChatGPT account, organization, or session exposes the Developer Mode connector creation entry; no ChatGPT connector has been created successfully yet.
+
+Do not represent this preview as a hosted service or private-repository scanner. Codex plugin packaging, ChatGPT App validation, hosted deployment, and any private-code handling remain deferred until a separate product, privacy, and maintenance decision.
+
 ## What It Is
 
 - A local TypeScript scanner kernel plus stdio MCP server.

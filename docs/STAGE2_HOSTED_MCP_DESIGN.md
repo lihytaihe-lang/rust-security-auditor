@@ -871,6 +871,86 @@ Stage 2.3 result for this local validation run:
 - API Playground MCP Server testing was not used for the same reason: it requires an authenticated OpenAI surface outside this local repository workflow.
 - Alternative validation used by Stage 2.3 is the official MCP SDK Streamable HTTP client, local `/healthz` and `/mcp` checks, optional MCP Inspector command, and the HTTPS tunnel smoke script.
 
+## Stage 2.4 Real ChatGPT Developer Mode Validation
+
+Date: 2026-05-18
+
+Endpoint type: temporary HTTPS tunnel. This validation used a local hosted MCP process exposed through localtunnel for ChatGPT Developer Mode testing only. It was not a stable hosted deployment, SaaS service, or production endpoint.
+
+Local hosted endpoint:
+
+- Server command: `HOSTED_MCP_ALLOWED_HOSTS=rsa-stage24-20260518-2144.loca.lt PORT=8787 HOST=127.0.0.1 npm run mcp:hosted`
+- Local port: `8787`
+- Local MCP endpoint: `http://127.0.0.1:8787/mcp`
+- Local health endpoint: `http://127.0.0.1:8787/healthz`
+- Health response advertised fixture-safe stateless mode and the four hosted tools only.
+
+Temporary HTTPS tunnel:
+
+- Tunnel command: `npx --yes localtunnel --port 8787 --subdomain rsa-stage24-20260518-2144`
+- HTTPS MCP endpoint: `https://rsa-stage24-20260518-2144.loca.lt/mcp`
+- HTTPS health endpoint: `https://rsa-stage24-20260518-2144.loca.lt/healthz`
+- The tunnel was used as a temporary development tunnel only and must not be treated as stable hosting.
+
+Smoke validation:
+
+- Local smoke command passed: `npm run smoke:hosted -- --url http://127.0.0.1:8787/mcp`
+- HTTPS smoke command passed: `npm run smoke:hosted -- --url https://rsa-stage24-20260518-2144.loca.lt/mcp`
+- `tools/list` returned exactly:
+  - `rust_audit_dependencies`
+  - `rust_audit_unsafe`
+  - `rust_list_accepted_risks`
+  - `rust_review_current_diff`
+- Fixture-safe calls succeeded:
+  - `rust_audit_unsafe`: `needs_attention`, 9 findings
+  - `rust_audit_dependencies`: `high_risk`, 6 findings
+  - `rust_list_accepted_risks`: `needs_attention`, 3 findings
+  - `rust_review_current_diff`: `needs_attention`, 3 findings
+- Hosted `structuredContent` shape was normal, including `tool`, `sourceKind`, `riskLevel`, `summary`, `findings`, `evidenceSnippets`, `limitations`, `suggestedNextSteps`, `confidenceNote`, and `privacy`.
+- The smoke privacy guard passed for absolute path rejection, private token rejection, oversized source rejection, and redacted error behavior.
+- Smoke output did not include host absolute paths, private repository references, tokens, or full source.
+
+ChatGPT Developer Mode result:
+
+- ChatGPT connection success: No.
+- ChatGPT listed tools: No.
+- ChatGPT-originated tool calls: None.
+- Developer Mode was enabled in ChatGPT Advanced settings.
+- The endpoint was reachable independently through HTTPS health and smoke checks.
+- Blocker: the ChatGPT UI did not expose the documented `Create` / `Create app` connector entry in Settings -> Apps / Connectors, the Apps catalog flow, or the composer Sources / Apps flow.
+- Likely cause: ChatGPT account, organization, entitlement, session, feature flag, or current UI limitation around creating unverified Developer Mode connectors.
+- Screenshot notes: Chrome screenshots showed an Enabled apps modal with no Create button and Advanced settings with Developer Mode enabled.
+
+Privacy check:
+
+- No private GitHub repository was connected.
+- No local private project path was read by the hosted server or submitted to ChatGPT.
+- No complete source upload was performed.
+- No user code was saved.
+- Hosted output paths stayed fixture-relative or sanitized.
+- Hosted tools remained fixture-safe.
+- Negative smoke checks verified sensitive inputs are rejected or redacted.
+
+Stage 2.4 decision:
+
+- Stage 2.4 is blocked, not complete.
+- The hosted prototype is ready for another real ChatGPT Developer Mode attempt from the repository side, but the ChatGPT UI must expose connector creation before the real connection gate can pass.
+- Do not start Stage 2.5 output polish based on ChatGPT rendering until ChatGPT can create the connector, list the four tools, and call at least one hosted fixture-safe tool.
+
+### Stage 2.4 minimum validation checklist
+
+Use this checklist for the next retry in a ChatGPT account, organization, or session where the Developer Mode connector creation entry is visible:
+
+- [ ] Start the hosted MCP server with the intended `HOSTED_MCP_ALLOWED_HOSTS`, `HOST`, and `PORT`.
+- [ ] Expose the local hosted server through a temporary HTTPS tunnel.
+- [ ] Verify MCP endpoint health through `/healthz` and run the hosted smoke script against the HTTPS `/mcp` URL.
+- [ ] Add the connector in ChatGPT Developer Mode with the public HTTPS `/mcp` URL.
+- [ ] Confirm ChatGPT lists only the four fixture-safe hosted tools.
+- [ ] Call at least one fixture-safe tool from ChatGPT.
+- [ ] Record the returned structured result, including `tool`, `riskLevel`, `summary`, `findings`, `limitations`, `suggestedNextSteps`, `confidenceNote`, and `privacy`.
+- [ ] Document screenshots and observations for connector setup, tool listing, and the fixture-safe tool call.
+- [ ] Update the final Stage 2.4 status as passed or blocked, with the exact ChatGPT account/session blocker if it remains blocked.
+
 ### Current limitations
 
 - No ChatGPT App UI component or widget.
