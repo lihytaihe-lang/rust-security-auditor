@@ -1,7 +1,13 @@
 import { join } from "node:path";
 import type { Confidence, Finding, Severity } from "../reports/schemas.js";
 import { readTextLines } from "./scannerUtils.js";
-import { isGlobalIgnoreToken, isSuppressionExpired, parseSuppressionDirective, type ParsedSuppressionDirective } from "./suppressions.js";
+import {
+  isGlobalIgnoreToken,
+  isSuppressionExpired,
+  parseSuppressionDirective,
+  suppressionMarker,
+  type ParsedSuppressionDirective
+} from "./suppressions.js";
 import type { ScannerResult, SuppressedFinding } from "./types.js";
 
 const severityRank: Record<Severity, number> = {
@@ -29,18 +35,25 @@ export async function finalizeScannerResult(
   const suppressedCount = countActiveSuppressions(suppressedFindings);
   const expiredSuppressionCount = countExpiredSuppressions(suppressedFindings);
   const invalidSuppressionCount = countInvalidSuppressions(suppressedFindings);
+  const deprecatedMarkerCount = countDeprecatedMarkerSuppressions(suppressedFindings);
   const finalWarnings = [...warnings];
 
   if (suppressedCount > 0) {
-    finalWarnings.push(`${suppressedCount} finding(s) suppressed by rustsec-auditor inline directives.`);
+    finalWarnings.push(`${suppressedCount} finding(s) suppressed by inline accepted-risk directives.`);
   }
 
   if (expiredSuppressionCount > 0) {
-    finalWarnings.push(`${expiredSuppressionCount} expired rustsec-auditor suppression directive(s) were ignored; findings are shown again.`);
+    finalWarnings.push(`${expiredSuppressionCount} expired accepted-risk suppression directive(s) were ignored; findings are shown again.`);
   }
 
   if (invalidSuppressionCount > 0) {
-    finalWarnings.push(`${invalidSuppressionCount} invalid rustsec-auditor suppression directive(s) were ignored; use an exact rule id and a '-- reason'.`);
+    finalWarnings.push(`${invalidSuppressionCount} invalid accepted-risk suppression directive(s) were ignored; use an exact rule id and a '-- reason'.`);
+  }
+
+  if (deprecatedMarkerCount > 0) {
+    finalWarnings.push(
+      `${deprecatedMarkerCount} suppression comment(s) use the deprecated 'rustsec-auditor:' marker; rename them to '${suppressionMarker}:'.`
+    );
   }
 
   return {
@@ -63,6 +76,10 @@ export function countExpiredSuppressions(suppressions: readonly SuppressedFindin
 
 export function countInvalidSuppressions(suppressions: readonly SuppressedFinding[]): number {
   return suppressions.filter((suppression) => !suppression.isValid).length;
+}
+
+export function countDeprecatedMarkerSuppressions(suppressions: readonly SuppressedFinding[]): number {
+  return suppressions.filter((suppression) => suppression.usesDeprecatedMarker === true).length;
 }
 
 export function dedupeFindings(findings: readonly Finding[]): Finding[] {
@@ -187,6 +204,7 @@ function createSuppressionMatch(
     rawComment: suppression.rawComment
   };
 
+  if (suppression.usesDeprecatedMarker) record.usesDeprecatedMarker = true;
   if (suppression.owner !== undefined) record.owner = suppression.owner;
   if (suppression.ticket !== undefined) record.ticket = suppression.ticket;
   if (suppression.until !== undefined) record.until = suppression.until;

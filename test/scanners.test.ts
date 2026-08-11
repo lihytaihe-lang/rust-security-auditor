@@ -147,8 +147,8 @@ describe("rust project scan", () => {
     assert.ok(activeSuppressions.some((suppression) => suppression.ticket === "SEC-123"));
     assert.ok(activeSuppressions.some((suppression) => suppression.until === "2999-12-31"));
     assert.ok(suppressedFindings.every((suppression) => suppression.rawComment.includes("rustsec-auditor: ignore")));
-    assert.match(result.warnings.join("\n"), /invalid rustsec-auditor suppression/);
-    assert.match(result.warnings.join("\n"), /expired rustsec-auditor suppression/);
+    assert.match(result.warnings.join("\n"), /invalid accepted-risk suppression/);
+    assert.match(result.warnings.join("\n"), /expired accepted-risk suppression/);
   });
 
   it("keeps the safe fixture much quieter than the vulnerable fixture", async () => {

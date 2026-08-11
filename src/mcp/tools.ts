@@ -2,7 +2,7 @@ import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, posix, relative, resolve } from "node:path";
 import { parseUnifiedDiff, type GitDiffFile, type ParsedGitDiff } from "../git/index.js";
 import { renderMarkdownReport, toJsonReport, type AuditReportInput, type Category, categories, type Finding, type Severity, severities } from "../reports/index.js";
-import { DependencyScanner, ProjectScanner, UnsafeScanner, discoverRustProject, listAcceptedRiskInventory, scanRustProject, type RustProject, type RustProjectScanResult } from "../scanners/index.js";
+import { DependencyScanner, ProjectScanner, SourceRiskScanner, UnsafeScanner, discoverRustProject, listAcceptedRiskInventory, scanRustProject, type RustProject, type RustProjectScanResult } from "../scanners/index.js";
 import { countActiveSuppressions, countExpiredSuppressions, countInvalidSuppressions, dedupeFindings, sortFindings } from "../scanners/resultUtils.js";
 import type { SuppressedFinding } from "../scanners/types.js";
 import { runShellCommand } from "../utils/shell.js";
@@ -1990,19 +1990,28 @@ async function scanRustProjectFiles(projectPath: string, files: ReadonlySet<stri
   const projectResult = await new ProjectScanner().scan({ workspacePath: projectPath });
   const project = filterRustProject(projectResult.project, files);
   const scanOptions = { workspacePath: projectPath, project };
-  const [unsafeResult, dependencyResult] = await Promise.all([
+  const [unsafeResult, dependencyResult, sourceRiskResult] = await Promise.all([
     new UnsafeScanner().scan(scanOptions),
-    new DependencyScanner().scan(scanOptions)
+    new DependencyScanner().scan(scanOptions),
+    new SourceRiskScanner().scan(scanOptions)
   ]);
   const suppressedFindings = [
     ...(unsafeResult.suppressedFindings ?? []),
-    ...(dependencyResult.suppressedFindings ?? [])
+    ...(dependencyResult.suppressedFindings ?? []),
+    ...(sourceRiskResult.suppressedFindings ?? [])
   ];
 
   return {
     project,
-    findings: sortFindings(dedupeFindings([...unsafeResult.findings, ...dependencyResult.findings])),
-    warnings: [...projectResult.warnings, ...unsafeResult.warnings, ...dependencyResult.warnings],
+    findings: sortFindings(
+      dedupeFindings([...unsafeResult.findings, ...dependencyResult.findings, ...sourceRiskResult.findings])
+    ),
+    warnings: [
+      ...projectResult.warnings,
+      ...unsafeResult.warnings,
+      ...dependencyResult.warnings,
+      ...sourceRiskResult.warnings
+    ],
     suppressedCount: countActiveSuppressions(suppressedFindings),
     expiredSuppressionCount: countExpiredSuppressions(suppressedFindings),
     invalidSuppressionCount: countInvalidSuppressions(suppressedFindings),
@@ -2017,9 +2026,11 @@ function emptyRustProjectScan(projectPath: string): RustProjectScanResult {
       isRustProject: true,
       cargoTomlFiles: [],
       cargoLockFiles: [],
+      cargoConfigFiles: [],
       buildScripts: [],
       rustSourceFiles: [],
-      workspaceManifests: []
+      workspaceManifests: [],
+      discoveryWarnings: []
     },
     findings: [],
     warnings: []
@@ -2031,6 +2042,7 @@ function filterRustProject(project: RustProject, files: ReadonlySet<string>): Ru
     ...project,
     cargoTomlFiles: project.cargoTomlFiles.filter((file) => files.has(file.file)),
     cargoLockFiles: project.cargoLockFiles.filter((file) => files.has(file.file)),
+    cargoConfigFiles: project.cargoConfigFiles.filter((file) => files.has(file.file)),
     buildScripts: project.buildScripts.filter((file) => files.has(file.file)),
     rustSourceFiles: project.rustSourceFiles.filter((file) => files.has(file.file)),
     workspaceManifests: project.workspaceManifests.filter((file) => files.has(file.file))

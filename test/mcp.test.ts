@@ -240,7 +240,10 @@ describe("MCP audit tools", () => {
     assert.ok(output.findings.length > 0);
     assert.ok(
       output.findings.every(
-        (finding) => finding.ruleId.startsWith("RSA-DEP-") || finding.ruleId.startsWith("RSA-BUILD-")
+        (finding) =>
+          finding.ruleId.startsWith("RSA-DEP-") ||
+          finding.ruleId.startsWith("RSA-BUILD-") ||
+          finding.ruleId.startsWith("RSA-CARGO-")
       )
     );
     assert.ok(output.findings.some((finding) => finding.ruleId === "RSA-BUILD-COMMAND"));
@@ -792,7 +795,7 @@ describe("MCP audit tools", () => {
     assert.deepEqual(decision.needsManualReviewFindingIds, [finding.id]);
     assert.equal(decision.safeToCommit, false);
     assert.equal(actionability.recommendedAction, "suppress_if_accepted");
-    assert.match(actionability.suppressionSuggestion ?? "", /rustsec-auditor: ignore RSA-BUILD-COMMAND/);
+    assert.match(actionability.suppressionSuggestion ?? "", /rust-security-auditor: ignore RSA-BUILD-COMMAND/);
   });
 
   it("same unsafe-site high findings need attention but do not hard block", () => {
@@ -877,7 +880,7 @@ describe("MCP audit tools", () => {
       assert.ok(output.enrichedFindings?.some((item) => item.suppression?.isValid === false));
       assert.match(output.reportMarkdown ?? "", /## Accepted \/ Suppressed Risks/);
       assert.match(output.reportMarkdown ?? "", /Expired suppression: finding is shown again/);
-      assert.match(output.warnings?.join("\n") ?? "", /invalid rustsec-auditor suppression/);
+      assert.match(output.warnings?.join("\n") ?? "", /invalid accepted-risk suppression/);
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

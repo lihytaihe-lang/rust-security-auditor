@@ -28,6 +28,8 @@ export interface SuppressedFinding {
   isValid: boolean;
   rawComment: string;
   invalidSuppression?: string;
+  /** True when the comment used the deprecated `rustsec-auditor:` marker. */
+  usesDeprecatedMarker?: boolean;
 }
 
 export interface SecurityScanner<TOptions extends ScannerContext = ScannerContext> {

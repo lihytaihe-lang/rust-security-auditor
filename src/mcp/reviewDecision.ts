@@ -294,7 +294,7 @@ function suggestedFixPrompt(item: DiffAwareFinding, recommendedAction: Recommend
     case "monitor":
       return `Please inspect ${finding.ruleId} at ${location}${functionPhrase}. ${relation}${changedContext} Treat this as a non-blocking context note unless project policy requires a fix; if fixing, first explain the invariant and then apply: ${finding.suggestedFix}`;
     case "suppress_if_accepted":
-      return `Please manually confirm ${finding.ruleId} at ${location}${functionPhrase}. ${relation}${changedContext} If the risk is intentional, document the acceptance with a rustsec-auditor suppression comment that includes a clear reason, owner, and ticket.`;
+      return `Please manually confirm ${finding.ruleId} at ${location}${functionPhrase}. ${relation}${changedContext} If the risk is intentional, document the acceptance with a rust-security-auditor suppression comment that includes a clear reason, owner, and ticket.`;
   }
 }
 
@@ -336,7 +336,7 @@ function formatChangedLineContext(item: DiffAwareFinding): string {
 }
 
 function suppressionSuggestion(finding: Finding): string {
-  return `// rustsec-auditor: ignore ${finding.ruleId} -- explain why this risk is acceptable`;
+  return `// rust-security-auditor: ignore ${finding.ruleId} -- explain why this risk is acceptable`;
 }
 
 function formatFindingLocation(finding: Finding): string {

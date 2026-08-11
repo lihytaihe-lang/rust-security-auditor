@@ -1,0 +1,9 @@
+# Fixture only: this config is never used to build anything.
+[source.crates-io]
+replace-with = "internal-mirror"
+
+[source.internal-mirror]
+registry = "https://example.invalid/index"
+
+[target.x86_64-unknown-linux-gnu]
+runner = "./tools/run-wrapper.sh"
