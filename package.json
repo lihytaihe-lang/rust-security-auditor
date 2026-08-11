@@ -28,10 +28,10 @@
     "mcp:call": "npm --silent run build && node dist/src/mcp/debug.js",
     "smoke:hosted": "npm --silent run build && node dist/scripts/smoke_hosted_mcp.js",
     "examples:regenerate": "npm --silent run build && node scripts/regenerate-examples.mjs",
-    "test": "npm run build && node scripts/run-tests.mjs",
+    "test": "npm run clean && npm run build && node scripts/run-tests.mjs",
     "check": "npm run typecheck && npm test && git diff --check",
     "prepack": "npm run build",
-    "clean": "rm -rf dist"
+    "clean": "node scripts/clean.mjs"
   },
   "keywords": [
     "rust",
