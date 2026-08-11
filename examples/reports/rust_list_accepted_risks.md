@@ -7,7 +7,7 @@
 - Invalid: 1
 - Owners: (missing): 5, @security: 1
 - Rule IDs: RSA-UNSAFE-BLOCK: 6
-- Scope: <repo>/test/fixtures/suppressed-rust-project
+- Scope: .
 
 ## Active Accepted Risks
 

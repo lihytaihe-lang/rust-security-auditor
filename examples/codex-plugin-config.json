@@ -20,9 +20,11 @@
   },
   "mcpServers": {
     "rust-security-auditor": {
-      "command": "npm",
-      "args": ["--silent", "run", "mcp"],
-      "cwd": "/absolute/path/to/rust-security-auditor"
+      "command": "npx",
+      "args": [
+        "-y",
+        "rust-security-auditor@latest"
+      ]
     }
   },
   "tools": [
@@ -32,7 +34,7 @@
         "review current diff",
         "check this Rust project before commit"
       ],
-      "recommendedUsage": "Use before commit, before PR, after Codex generated code, or after touching unsafe/dependencies/build.rs. Returns reviewDecision, suppressionSummary, and suggestedFixPrompt values without modifying code or adding suppressions.",
+      "recommendedUsage": "Use before commit, before PR, after agent-generated code, or after touching unsafe/dependencies/build.rs. Returns reviewDecision, suppressionSummary, and suggestedFixPrompt values without modifying code or adding suppressions.",
       "defaultArguments": {
         "projectPath": "/absolute/path/to/rust/project",
         "includePreExisting": false,
@@ -41,7 +43,9 @@
     },
     {
       "name": "rust_audit_unsafe",
-      "naturalLanguageEntries": ["audit unsafe"],
+      "naturalLanguageEntries": [
+        "audit unsafe"
+      ],
       "recommendedUsage": "Use for unsafe blocks, unsafe fn, FFI, raw pointers, MaybeUninit, transmute, raw-parts APIs, and unsafe Send/Sync review.",
       "defaultArguments": {
         "projectPath": "/absolute/path/to/rust/project",
@@ -51,7 +55,9 @@
     },
     {
       "name": "rust_audit_dependencies",
-      "naturalLanguageEntries": ["audit dependencies"],
+      "naturalLanguageEntries": [
+        "audit dependencies"
+      ],
       "recommendedUsage": "Use for Cargo.toml, Cargo.lock, build.rs, git/path dependencies, proc macros, and build dependencies.",
       "defaultArguments": {
         "projectPath": "/absolute/path/to/rust/project",
@@ -80,7 +86,7 @@
         "check expired suppressions",
         "review accepted risk inventory before release"
       ],
-      "recommendedUsage": "Use to inventory rustsec-auditor suppression comments before release or security re-review without running the full scanner or modifying code.",
+      "recommendedUsage": "Use to inventory accepted-risk suppression comments before release or security re-review without running the full scanner or modifying code.",
       "defaultArguments": {
         "projectPath": "/absolute/path/to/rust/project",
         "includeExpired": true,
@@ -98,5 +104,18 @@
     "This is not a ChatGPT App configuration.",
     "This is not a SaaS upload flow.",
     "This is not a web UI."
-  ]
+  ],
+  "localCheckoutAlternative": {
+    "mcpServers": {
+      "rust-security-auditor": {
+        "command": "npm",
+        "args": [
+          "--silent",
+          "run",
+          "mcp"
+        ],
+        "cwd": "/absolute/path/to/rust-security-auditor"
+      }
+    }
+  }
 }

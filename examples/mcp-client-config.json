@@ -1,15 +1,25 @@
 {
   "serverName": "rust-security-auditor",
-  "stdioServer": {
-    "command": "npm",
-    "args": ["--silent", "run", "mcp"],
-    "cwd": "/absolute/path/to/rust-security-auditor"
+  "installFromNpm": {
+    "mcpServers": {
+      "rust-security-auditor": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "rust-security-auditor@latest"
+        ]
+      }
+    }
   },
-  "codexExample": {
+  "installFromLocalCheckout": {
     "mcpServers": {
       "rust-security-auditor": {
         "command": "npm",
-        "args": ["--silent", "run", "mcp"],
+        "args": [
+          "--silent",
+          "run",
+          "mcp"
+        ],
         "cwd": "/absolute/path/to/rust-security-auditor"
       }
     }
@@ -43,7 +53,7 @@
     },
     {
       "name": "rust_review_current_diff",
-      "whenToUse": "Before commit, before PR, after Codex generated code, or after touching unsafe/dependencies/build.rs. Returns reviewDecision, suppressionSummary, and suggestedFixPrompt values without modifying code or adding suppressions.",
+      "whenToUse": "Before commit, before PR, after agent-generated code, or after touching unsafe/dependencies/build.rs. Returns reviewDecision, suppressionSummary, and suggestedFixPrompt values without modifying code or adding suppressions.",
       "arguments": {
         "projectPath": "/absolute/path/to/rust/project",
         "baseRef": "main",
@@ -55,7 +65,7 @@
     },
     {
       "name": "rust_list_accepted_risks",
-      "whenToUse": "Before release, during security re-review, when checking expired suppressions, or when cleaning up invalid rustsec-auditor suppression comments. Returns an accepted-risk inventory without running the full scanner or modifying code.",
+      "whenToUse": "Before release, during security re-review, when checking expired suppressions, or when cleaning up invalid suppression comments. Returns an accepted-risk inventory without running the full scanner or modifying code.",
       "arguments": {
         "projectPath": "/absolute/path/to/rust/project",
         "includeExpired": true,
