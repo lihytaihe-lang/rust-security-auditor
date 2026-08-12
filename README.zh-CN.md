@@ -2,11 +2,21 @@
 
 [English](README.md) · **简体中文**
 
-一个本地优先的 Rust 安全审查 MCP server，通过 stdio 通信。它审查 Rust 代码中的 unsafe、FFI 和供应链风险，告诉你的编码 agent 在提交前该看哪里。
+一个面向 Rust 项目的本地安全审查 server，通过 MCP 协议对话。它审查 `unsafe` 与 FFI 面、Cargo 供应链与构建期的信任边界、以及进程执行——既可以审计整个项目，也可以只审你正要提交的这次改动。
 
-它完全运行在你的机器上，读取本地 Cargo 项目，从不修改目标源码树，通过 stdio 向 Claude Code、Codex、Cursor 或任何 MCP 客户端暴露五个只读工具。
+它完全运行在你的机器上，读取本地 Cargo 项目，从不修改目标源码树，向 Claude Code、Codex、Cursor 或任何 MCP 客户端暴露五个只读工具。
 
-让 agent 审查你刚写的代码，返回的是这次改动里真正带风险的那部分——以下是真实输出的节选：
+AI 辅助开发写 Rust 的速度，已经超过了人工审查的速度。生成的模块因为"更快"而用上 `get_unchecked`，生成的 `build.rs` 调起外部命令，生成的 `Cargo.toml` 把依赖钉成 `*`——每一行都是编译器接受的正常 Rust。这个工具把它们找出来，并告诉你每一处要求你证明什么。
+
+## 两种用法
+
+**审计整个项目** —— 接手一个 crate、评估某个依赖、或准备发版时用。`rust_audit_project` 会在 Cargo 真正会编译的代码上跑全部规则；`rust_audit_unsafe` 和 `rust_audit_dependencies` 各自收窄到一个面。你拿到的是完整清单：unsafe 在哪、每处承担什么义务、构建期存在哪些信任边界。
+
+**审查这次改动** —— 每次提交前用，尤其是 agent 刚生成完代码之后。`rust_review_current_diff` 读 `git diff`，把「这次改动引入的」和「本来就有的」分开。在一个已有几百条发现的 crate 上，这就是「一份你会忽略的清单」和「一份你会处理的清单」之间的差别。
+
+两者跑的是同一套规则。全项目审计告诉你现在站在哪；diff 审查防止你往回滑。
+
+下面是第二种用法在一次真实改动上的输出节选：
 
 ```markdown
 # Rust Security Review: Current Diff
@@ -35,17 +45,62 @@ NEEDS ATTENTION
 
 同一文件里其它位置的既有 unsafe 代码会被单独归类，不会看起来像新增的阻塞项。
 
-## 为什么这样设计
+## 是什么让输出可用
 
-多数扫描器回答的是「这个代码库有什么问题」。对一个刻意使用 `unsafe` 的 crate 来说，那份答案就是一串你翻一次就再也不会打开的清单。这个工具围绕另外三个决定来构建。
+一个什么都报的安全工具，只会被读一次。三个设计决定把输出压到你真正会处理的量级，每一条背后都有实测数据。
 
-**它审查的是改动，不是代码库。** [`tokio-rs/bytes`](https://github.com/tokio-rs/bytes) 全仓 246 条发现，仅 `src/bytes.rs` 一个文件就有 77 条。往这个文件里加五行、含一个 `unsafe` 块，审查报出的是**一条**新引入的发现，外加一条因为落在同一个 unsafe 块里、确实相关的既有发现——另外 76 条被隐藏。这才是你提交前真正能处理的数量。
+**只审 Cargo 会编译的代码。** [`BurntSushi/memchr`](https://github.com/BurntSushi/memchr) 的默认审计原本报 1721 条，其中 1311 条来自单个 1.6 MB 的基准测试**输入文件**——那个文件存在的目的是被搜索，不是被编译。现在文件按 Cargo 的可达方式分类，全项目审计只读 `src/` 和 `build.rs`，数字变成 396，其中 374 条来自真实的 crate 源码。**排除永不静默**——每份报告都会说明排除了什么、为什么，一个开关就能全部找回来。
 
-**它只审 Cargo 会编译的代码。** [`BurntSushi/memchr`](https://github.com/BurntSushi/memchr) 的默认审计原本报 1721 条，其中 1311 条来自单个 1.6 MB 的基准测试**输入文件**——那个文件存在的目的是被搜索，不是被编译。现在文件按 Cargo 的可达方式分类，广度审计只读 `src/` 和 `build.rs`，数字变成 396，其中 374 条来自真实的 crate 源码。**排除永不静默**——每份报告都会说明排除了什么、为什么。
+**diff 审查把「引入的」和「本来就有的」分开。** [`tokio-rs/bytes`](https://github.com/tokio-rs/bytes) 全仓 246 条发现，仅 `src/bytes.rs` 一个文件就有 77 条。往这个文件里加五行、含一个 `unsafe` 块，审查报出的是**一条**新引入的发现，外加一条因为落在同一个 unsafe 块里、确实相关的既有发现——另外 76 条被隐藏。
 
 **看不到的时候，它拒绝说「通过」。** 如果你 diff 里的某个文件读不了、超限、或落在项目根之外，审查会明说，并且不给结论——而不是基于残缺的扫描报一个干净结果。同样的原则适用于当前平台无法无歧义寻址的 Git 路径：直接让调用失败，而不是去审查那个路径碰巧命中的文件。
 
 一切都在你机器上运行。它只读本地路径，从不写入你的源码树，不发起任何网络请求。
+
+## 能检出什么
+
+**Unsafe 与 FFI** — `RSA-UNSAFE-BLOCK`、`RSA-UNSAFE-FN`、`RSA-UNSAFE-IMPL-SEND`、`RSA-UNSAFE-IMPL-SYNC`、`RSA-FFI-EXTERN-C`、`RSA-FFI-CSTR-FROM-PTR`、`RSA-UNSAFE-TRANSMUTE`、`RSA-UNSAFE-MAYBEUNINIT`、`RSA-UNSAFE-FROM-RAW-PARTS`、`RSA-UNSAFE-SET-LEN`、`RSA-UNSAFE-BOX-FROM-RAW`、`RSA-UNSAFE-GET-UNCHECKED`、`RSA-UNSAFE-UNCHECKED-CALL`、`RSA-UNSAFE-STATIC-MUT`、`RSA-UNSAFE-RAW-PTR-ACCESS`
+
+**供应链与构建** — `RSA-DEP-GIT`、`RSA-DEP-PATH`、`RSA-DEP-PROC-MACRO`、`RSA-DEP-BUILD-DEPENDENCIES`、`RSA-DEP-LOCK-GIT`、`RSA-DEP-VERSION-UNBOUNDED`、`RSA-BUILD-SCRIPT`、`RSA-BUILD-COMMAND`、`RSA-CARGO-SOURCE-REPLACEMENT`、`RSA-CARGO-RUNNER`
+
+**运行时执行** — `RSA-EXEC-COMMAND`
+
+每条发现都带有规则 id、文件和行号、证据、为什么重要、一个具体的风险场景，以及建议的修复方式。发现按 `file + startLine + ruleId` 去重，并按严重度、置信度、位置排序。
+
+扫描器会跟踪 Rust 的注释和字面量边界，所以块注释、文档示例或字符串字面量里的模式不会被上报。`#[cfg(test)]` 内的发现会降低严重度，因为测试代码不参与发布。
+
+**置信度指的是模式检出的确定性，不是可利用性。** 高置信度的意思是「这个模式确实在那里」，不是「确认存在漏洞」。
+
+### 扫描范围
+
+广度审计读取 Cargo 真正会编译的内容：每个 crate 的 `src/`，加上 `build.rs`。它跳过 test、benchmark、example 目标，也跳过任何 Cargo 目标都到不了的 `.rs` 文件——样例输入、vendor 快照、临时草稿。永不参与编译的代码不可能带来运行时风险，扫描它只会把真正重要的发现淹没。
+
+跳过永不静默。每份报告都会说明排除了多少文件、以及为什么：
+
+```
+Excluded 18 Rust file(s) from source scanning: 18 file(s) no Cargo target reaches.
+Set includeNonShippedSources to include them.
+```
+
+给 `rust_audit_project` 传 `includeNonShippedSources: true` 就会把它们纳入。`rust_review_current_diff` 从不应用这个过滤——你改了测试目标，那是你有意改的，所以照审。
+
+## 能告诉你什么，不能告诉你什么
+
+**它能告诉你**：一个 crate 的 unsafe 和 FFI 面在哪里、每个位置各自承担什么义务；某次具体改动引入了什么、以及哪些既有代码近到值得一并看；构建期和供应链的信任边界在哪——构建脚本、git 和 path 依赖、过程宏、registry 替换、自定义 target runner；以及有哪些风险是别人已经接受过的，包括那些已经过期的接受记录。
+
+**它不能告诉你**某个 `unsafe` 块是否真的不健全。它指出那些「内存安全依赖于编译器不检查的不变量」的位置，把证据和问题交给你。证明那个不变量成立，仍然是你或你的评审者的工作。
+
+### 已知短板
+
+- **不查已知漏洞。** 没有 [RustSec advisory](https://rustsec.org) 或 CVE 查询，所以它永远不会告诉你某个依赖版本有已公开的安全公告。请配合 `cargo audit` 或 `cargo deny` 使用。（[已列入 roadmap](ROADMAP.md)）
+- **带词法上下文的模式匹配，不是语义分析。** 没有 AST、类型信息、数据流或污点追踪。它知道某一行是代码而不是注释或字符串，也知道这一行落在哪个函数和哪个 unsafe 块里。但它不知道一个指针是从哪来的。
+- **风险等级反映的是数量和严重度，不是可利用性。** 一个刻意使用 `unsafe` 的 crate——SIMD、分配器、FFI 绑定——会被标成 `high_risk`，因为它发现多，不是因为它危险。memchr 在真实源码里有 374 条发现；memchr 没问题。**看发现，别看那个标签。**
+- **已经评审过、写了文档的 unsafe 块仍然会被报出来。** 附近的 `SAFETY:` 注释会降低置信度，但不会移除这条发现，因为工具无法检查那条注释说的是不是真的。这正是「已接受风险抑制」存在的意义。
+- **裸 `#[tokio::test]` 会被当作生产代码**，除非它位于 `#[cfg(test)]` 模块内。只有 Rust 自带的 `#[test]`、以及确定要求 `test` 的 `cfg` 才会降低发现的严重度——其它任何属性路径都可能是一个在 release 构建里照样编译的宏。
+- **依赖审查读的是清单文件，不是解析后的依赖图。** 它检查 `Cargo.toml`、`Cargo.lock`、`build.rs` 和 `.cargo/config.toml`，但不解析传递依赖、不检查被 yank 的 crate、不评估 feature 合并。
+- 不是形式化验证、符号执行，也不能替代人工评审 unsafe 不变量。
+- 不是托管服务、SaaS 扫描器或代码上传扫描器。它只读本地路径。
+- 不是通用代码评审或风格检查工具。
 
 ## 安装
 
@@ -167,53 +222,6 @@ VS Code 的配置块放进 `.vscode/mcp.json`，或通过 **MCP: Open User Confi
 每个工具都接受 `projectPath`、`outputFormat`（`markdown` | `json`）、`pathMode`（`relative` | `absolute`）和 `reportMode`（`compact` | `full`）。默认是 `relative` 和 `compact`——这样你粘进 PR 的内容里不会带上本机绝对路径。
 
 各工具的脱敏示例输出见 [`examples/reports/`](examples/reports)。
-
-## 能检出什么
-
-**Unsafe 与 FFI** — `RSA-UNSAFE-BLOCK`、`RSA-UNSAFE-FN`、`RSA-UNSAFE-IMPL-SEND`、`RSA-UNSAFE-IMPL-SYNC`、`RSA-FFI-EXTERN-C`、`RSA-FFI-CSTR-FROM-PTR`、`RSA-UNSAFE-TRANSMUTE`、`RSA-UNSAFE-MAYBEUNINIT`、`RSA-UNSAFE-FROM-RAW-PARTS`、`RSA-UNSAFE-SET-LEN`、`RSA-UNSAFE-BOX-FROM-RAW`、`RSA-UNSAFE-GET-UNCHECKED`、`RSA-UNSAFE-UNCHECKED-CALL`、`RSA-UNSAFE-STATIC-MUT`、`RSA-UNSAFE-RAW-PTR-ACCESS`
-
-**供应链与构建** — `RSA-DEP-GIT`、`RSA-DEP-PATH`、`RSA-DEP-PROC-MACRO`、`RSA-DEP-BUILD-DEPENDENCIES`、`RSA-DEP-LOCK-GIT`、`RSA-DEP-VERSION-UNBOUNDED`、`RSA-BUILD-SCRIPT`、`RSA-BUILD-COMMAND`、`RSA-CARGO-SOURCE-REPLACEMENT`、`RSA-CARGO-RUNNER`
-
-**运行时执行** — `RSA-EXEC-COMMAND`
-
-每条发现都带有规则 id、文件和行号、证据、为什么重要、一个具体的风险场景，以及建议的修复方式。发现按 `file + startLine + ruleId` 去重，并按严重度、置信度、位置排序。
-
-扫描器会跟踪 Rust 的注释和字面量边界，所以块注释、文档示例或字符串字面量里的模式不会被上报。`#[cfg(test)]` 内的发现会降低严重度，因为测试代码不参与发布。
-
-**置信度指的是模式检出的确定性，不是可利用性。** 高置信度的意思是「这个模式确实在那里」，不是「确认存在漏洞」。
-
-### 扫描范围
-
-广度审计读取 Cargo 真正会编译的内容：每个 crate 的 `src/`，加上 `build.rs`。它跳过 test、benchmark、example 目标，也跳过任何 Cargo 目标都到不了的 `.rs` 文件——样例输入、vendor 快照、临时草稿。永不参与编译的代码不可能带来运行时风险，扫描它只会把真正重要的发现淹没。
-
-跳过永不静默。每份报告都会说明排除了多少文件、以及为什么：
-
-```
-Excluded 18 Rust file(s) from source scanning: 18 file(s) no Cargo target reaches.
-Set includeNonShippedSources to include them.
-```
-
-给 `rust_audit_project` 传 `includeNonShippedSources: true` 就会把它们纳入。`rust_review_current_diff` 从不应用这个过滤——你改了测试目标，那是你有意改的，所以照审。
-
-在 [`BurntSushi/memchr`](https://github.com/BurntSushi/memchr) 上，这让默认审计从 1721 条降到 396 条；被移除的 1325 条几乎全部来自那一个 Cargo 从不编译的 1.6 MB 基准测试**输入**文件。
-
-## 能告诉你什么，不能告诉你什么
-
-**它能告诉你**：一个 crate 的 unsafe 和 FFI 面在哪里、每个位置各自承担什么义务；某次具体改动引入了什么、以及哪些既有代码近到值得一并看；构建期和供应链的信任边界在哪——构建脚本、git 和 path 依赖、过程宏、registry 替换、自定义 target runner；以及有哪些风险是别人已经接受过的，包括那些已经过期的接受记录。
-
-**它不能告诉你**某个 `unsafe` 块是否真的不健全。它指出那些「内存安全依赖于编译器不检查的不变量」的位置，把证据和问题交给你。证明那个不变量成立，仍然是你或你的评审者的工作。
-
-### 已知短板
-
-- **不查已知漏洞。** 没有 [RustSec advisory](https://rustsec.org) 或 CVE 查询，所以它永远不会告诉你某个依赖版本有已公开的安全公告。请配合 `cargo audit` 或 `cargo deny` 使用。（[已列入 roadmap](ROADMAP.md)）
-- **带词法上下文的模式匹配，不是语义分析。** 没有 AST、类型信息、数据流或污点追踪。它知道某一行是代码而不是注释或字符串，也知道这一行落在哪个函数和哪个 unsafe 块里。但它不知道一个指针是从哪来的。
-- **风险等级反映的是数量和严重度，不是可利用性。** 一个刻意使用 `unsafe` 的 crate——SIMD、分配器、FFI 绑定——会被标成 `high_risk`，因为它发现多，不是因为它危险。memchr 在真实源码里有 374 条发现；memchr 没问题。**看发现，别看那个标签。**
-- **已经评审过、写了文档的 unsafe 块仍然会被报出来。** 附近的 `SAFETY:` 注释会降低置信度，但不会移除这条发现，因为工具无法检查那条注释说的是不是真的。这正是「已接受风险抑制」存在的意义。
-- **裸 `#[tokio::test]` 会被当作生产代码**，除非它位于 `#[cfg(test)]` 模块内。只有 Rust 自带的 `#[test]`、以及确定要求 `test` 的 `cfg` 才会降低发现的严重度——其它任何属性路径都可能是一个在 release 构建里照样编译的宏。
-- **依赖审查读的是清单文件，不是解析后的依赖图。** 它检查 `Cargo.toml`、`Cargo.lock`、`build.rs` 和 `.cargo/config.toml`，但不解析传递依赖、不检查被 yank 的 crate、不评估 feature 合并。
-- 不是形式化验证、符号执行，也不能替代人工评审 unsafe 不变量。
-- 不是托管服务、SaaS 扫描器或代码上传扫描器。它只读本地路径。
-- 不是通用代码评审或风格检查工具。
 
 ## 当前 diff 审查
 
