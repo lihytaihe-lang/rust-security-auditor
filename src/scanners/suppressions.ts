@@ -19,12 +19,16 @@ export interface ParsedSuppressionDirective {
 }
 
 export function parseSuppressionDirective(line: string): ParsedSuppressionDirective | undefined {
-  const match = /(rust-security-auditor|rustsec-auditor):\s*ignore\s+(\S+)(.*)$/i.exec(line);
+  // The rule id is matched, the rest of the line is sliced. A trailing `(.*)$`
+  // group would be a second quantifier competing with `(\S+)` for the same
+  // characters; slicing removes the ambiguity and states the line scope
+  // directly rather than relying on `.` not crossing a newline.
+  const match = /(rust-security-auditor|rustsec-auditor):\s*ignore\s+(\S+)/i.exec(line);
   if (match === null || match[2] === undefined) return undefined;
 
   const usesDeprecatedMarker = (match[1] ?? "").toLowerCase() === deprecatedSuppressionMarker;
   const ruleId = match[2].trim();
-  const remainder = match[3]?.trim() ?? "";
+  const remainder = (line.slice(match.index + match[0].length).split("\n", 1)[0] ?? "").trim();
   const delimiterIndex = remainder.indexOf("--");
   const metadataText = delimiterIndex === -1 ? remainder : remainder.slice(0, delimiterIndex).trim();
   const reason = delimiterIndex === -1 ? "" : remainder.slice(delimiterIndex + 2).trim();

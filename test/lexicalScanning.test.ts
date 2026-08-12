@@ -299,6 +299,45 @@ describe("lexing work is bounded by files, not findings", () => {
   });
 });
 
+describe("scan input cannot stall the scanner", () => {
+  // The tool reads Rust it does not trust, so a crafted source file must not be
+  // able to make a scan take unbounded time. Both cases below are a single long
+  // line well under the 2 MiB per-file cap; each ran for tens of seconds while
+  // the matching pattern still used an ambiguous quantifier. The budget is set
+  // far above the fixed cost — around 150 ms on a developer machine — so that a
+  // loaded CI runner cannot make the test flaky while still failing loudly if
+  // quadratic behaviour returns.
+  const stallBudgetMs = 4_000;
+
+  function millisecondsToScan(source: string): number {
+    const startedAt = process.hrtime.bigint();
+    scanUnsafeRustText("src/lib.rs", source);
+    return Number(process.hrtime.bigint() - startedAt) / 1e6;
+  }
+
+  it("bounds the cfg attribute argument search", () => {
+    // Every `#[cfg(` starts a search for a closing `)]` that is never there.
+    const elapsed = millisecondsToScan(`${"#[cfg(a".repeat(75_000)}\nlet x = unsafe { 1 };`);
+
+    assert.ok(elapsed < stallBudgetMs, `cfg attribute scan took ${elapsed.toFixed(0)}ms`);
+  });
+
+  it("bounds the transmute whitespace search", () => {
+    // A long whitespace run with no call parenthesis after it, which two
+    // adjacent `\s*` runs could split in any of its positions.
+    const elapsed = millisecondsToScan(`transmute${" ".repeat(512 * 1024)}\nlet x = unsafe { 1 };`);
+
+    assert.ok(elapsed < stallBudgetMs, `transmute scan took ${elapsed.toFixed(0)}ms`);
+  });
+
+  it("still reads the crafted lines as ordinary source", () => {
+    // The bound must not silently drop findings on the same input.
+    const findings = scanUnsafeRustText("src/lib.rs", `${"#[cfg(a".repeat(64)}\nlet x = unsafe { 1 };`);
+
+    assert.deepEqual(ruleIds(findings), ["RSA-UNSAFE-BLOCK"]);
+  });
+});
+
 describe("runtime command execution", () => {
   it("reports Command::new in shipped code but not the import", async () => {
     const result = await new SourceRiskScanner().scan({ workspacePath: cargoConfigFixturePath });

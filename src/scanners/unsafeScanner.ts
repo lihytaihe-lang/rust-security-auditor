@@ -111,7 +111,11 @@ function findUnsafeLineFindings(context: UnsafeLineContext): Finding[] {
     findings.push(unsafeBlockFinding(context));
   }
 
-  if (/\b(?:std::mem::|core::mem::|mem::)?transmute(?:_copy)?\s*(?:::<[^>]*>)?\s*\(/.test(codeLine)) {
+  // The whitespace run belongs inside the optional turbofish group. Written as
+  // `\s*(?:::<...>)?\s*`, the two runs can split a single run of spaces in any
+  // way, so `transmute` followed by a long run of spaces and no `(` costs
+  // quadratic time before the match fails.
+  if (/\b(?:std::mem::|core::mem::|mem::)?transmute(?:_copy)?\s*(?:::<[^>]*>\s*)?\(/.test(codeLine)) {
     findings.push(simpleFinding(context, "RSA-UNSAFE-TRANSMUTE"));
   }
 
