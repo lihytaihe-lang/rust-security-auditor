@@ -71,7 +71,7 @@ function assertPublicPackageBoundary(entries) {
 }
 
 async function verifyInstalledMcp(binPath) {
-  const child = spawn(binPath, [], { cwd: repoRoot, stdio: ["pipe", "pipe", "pipe"] });
+  const child = spawnPossibleShim(binPath, [], { cwd: repoRoot, stdio: ["pipe", "pipe", "pipe"] });
   const pending = new Map();
   const stdoutLines = [];
   let buffer = "";
@@ -181,9 +181,29 @@ function npmCommand() {
   return process.platform === "win32" ? "npm.cmd" : "npm";
 }
 
+/**
+ * Spawns a command that may be a Windows `.cmd` shim.
+ *
+ * Node refuses to execute `.cmd` and `.bat` directly since the CVE-2024-27980
+ * hardening, so those need a shell. Node does not quote arguments in shell
+ * mode, and both npm and the installed bin receive temporary directory paths
+ * that can contain spaces, so quote them here.
+ */
+function spawnPossibleShim(command, args, options) {
+  if (process.platform === "win32" && command.toLowerCase().endsWith(".cmd")) {
+    return spawn(quoteForWindowsShell(command), args.map(quoteForWindowsShell), { ...options, shell: true });
+  }
+
+  return spawn(command, args, options);
+}
+
+function quoteForWindowsShell(value) {
+  return /[\s"&|<>^]/.test(value) ? `"${value.replaceAll('"', '\\"')}"` : value;
+}
+
 function run(command, args, options) {
   return new Promise((resolveRun, rejectRun) => {
-    const child = spawn(command, args, { ...options, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawnPossibleShim(command, args, { ...options, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => (stdout += chunk.toString()));
