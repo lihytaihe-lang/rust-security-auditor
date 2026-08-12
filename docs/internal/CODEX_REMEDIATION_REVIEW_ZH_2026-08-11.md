@@ -115,7 +115,7 @@ MCP 是协议，提供各家配置格式属正常文档，不需要免责声明�
 
 ### R5：隐私测试中硬编码维护者本机路径
 
-`test/artifactPrivacy.test.ts` 多处写入 `/Volumes/GF/kaiyuan/rust-security-auditor`。
+`test/artifactPrivacy.test.ts` 多处写入 `<repo>`。
 功能上无误（仅作函数入参），但这是**专门检测路径泄漏的测试**，将本机目录结构提交进公开仓库有自相矛盾之嫌。
 该文件不在 npm tarball 的 `files` 内，但在公开 GitHub 仓库中可见。
 建议改用 `/home/example/workspace/project` 之类的合成路径。

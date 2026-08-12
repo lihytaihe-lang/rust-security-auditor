@@ -1,7 +1,7 @@
 # Rust Security Auditor：Claude + Codex 合并后修复方案
 
 - 日期：2026-08-11
-- 工作区：`/Volumes/GF/kaiyuan/rust-security-auditor`
+- 工作区：`<repo>`
 - 基线：`c8f79ad56e5153f8e76365d1a1651f26a672426b` 上的现有未提交改动
 - 输入：Claude 独立审查 `CODEX_REMEDIATION_REVIEW_ZH_2026-08-11.md`（R1–R6），以及本轮已封存的 Codex 安全复核（2 项发现）
 - 当前发布门：`HOLD`
@@ -105,7 +105,7 @@ node /absolute/path/to/rust-security-auditor/dist/src/mcp/server.js
 
 ### C1. R5：测试数据去标识化
 
-将 `test/artifactPrivacy.test.ts` 中所有 `/Volumes/GF/kaiyuan/rust-security-auditor` 改为合成 repository root，例如 `/home/example/workspace/project`；断言仍应覆盖 POSIX、`/tmp`、`/root`、`/srv`、Windows drive、UNC 和 JSON 转义值。
+将 `test/artifactPrivacy.test.ts` 中所有 `<repo>` 改为合成 repository root，例如 `/home/example/workspace/project`；断言仍应覆盖 POSIX、`/tmp`、`/root`、`/srv`、Windows drive、UNC 和 JSON 转义值。
 
 ### C2. R6：确定性 current-diff 示例
 

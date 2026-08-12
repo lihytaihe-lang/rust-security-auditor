@@ -220,7 +220,9 @@ export function describeSkippedRustTargets(summary: RustTargetSummary, includeNo
     summary.unreferenced === 0 ? undefined : `${summary.unreferenced} file(s) no Cargo target reaches`
   ].filter((part): part is string => part !== undefined);
 
+  // Phrased as an exclusion rather than as what was scanned, because each tool
+  // reads a different subset of the Cargo-built files.
   return [
-    `Scanned ${summary.shipped + summary.buildScript} Rust file(s) that Cargo builds; skipped ${skipped} (${parts.join(", ")}). Set includeNonShippedSources to scan them too.`
+    `Excluded ${skipped} Rust file(s) from source scanning: ${parts.join(", ")}. Set includeNonShippedSources to include them.`
   ];
 }

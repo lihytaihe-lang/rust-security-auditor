@@ -49,8 +49,7 @@ describe("cargo target classification", () => {
       { shipped: 3, buildScript: 1, development: 2, unreferenced: 4 },
       false
     );
-    assert.match(message ?? "", /Scanned 4 Rust file\(s\)/);
-    assert.match(message ?? "", /skipped 6/);
+    assert.match(message ?? "", /Excluded 6 Rust file\(s\) from source scanning/);
     assert.match(message ?? "", /2 test\/benchmark\/example target file\(s\)/);
     assert.match(message ?? "", /4 file\(s\) no Cargo target reaches/);
   });
@@ -74,7 +73,7 @@ describe("scan scope", () => {
 
     assert.deepEqual(files, ["build.rs", "src/lib.rs"]);
     assert.ok(
-      scan.warnings.some((warning) => /skipped 4 \(3 test\/benchmark\/example target file\(s\), 1 file\(s\) no Cargo target reaches\)/.test(warning)),
+      scan.warnings.some((warning) => /Excluded 4 Rust file\(s\) from source scanning: 3 test\/benchmark\/example target file\(s\), 1 file\(s\) no Cargo target reaches/.test(warning)),
       `expected a skip report, got: ${JSON.stringify(scan.warnings)}`
     );
   });

@@ -947,7 +947,7 @@ describe("MCP audit tools", () => {
         auditOutput.findings.some((finding) => finding.file === "tests/integration.rs"),
         false
       );
-      assert.ok(auditOutput.warnings?.some((warning) => warning.includes("skipped")));
+      assert.ok(auditOutput.warnings?.some((warning) => warning.includes("Excluded")));
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

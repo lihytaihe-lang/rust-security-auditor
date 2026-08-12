@@ -1,7 +1,7 @@
 # Rust Security Auditor：对抗复核与 R1 实施记录
 
 - 日期：2026-08-12
-- 仓库：`/Volumes/GF/kaiyuan/rust-security-auditor`
+- 仓库：`<repo>`
 - 审查基线：`9ad37e7`（工作开始时干净）
 - 范围：C1 Git 路径身份、R2 review decision 优先级、suppression 性能缓存、R1 本地 checkout 安装路径
 - 外部动作：无推送、无 tag、无 npm publish、无真实 Codex/Claude 配置写入

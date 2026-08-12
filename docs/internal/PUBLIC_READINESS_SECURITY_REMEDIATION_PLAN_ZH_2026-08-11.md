@@ -1,7 +1,7 @@
 # Rust Security Auditor 开源前安全修复方案
 
 - 日期：2026-08-11
-- 唯一仓库：`/Volumes/GF/kaiyuan/rust-security-auditor`
+- 唯一仓库：`<repo>`
 - 分支：`improve/public-readiness`
 - 受影响代码基线：`c8f79ad56e5153f8e76365d1a1651f26a672426b`
 - 原始安全扫描 ID：`c123753e-a53c-488b-8e01-2f3baeffd843`

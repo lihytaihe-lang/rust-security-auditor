@@ -183,8 +183,8 @@ A broad audit reads what Cargo actually builds: each crate's `src/`, plus `build
 The skip is never silent. Every report states how many files were left out and why:
 
 ```
-Scanned 46 Rust file(s) that Cargo builds; skipped 18 (18 file(s) no Cargo target reaches).
-Set includeNonShippedSources to scan them too.
+Excluded 18 Rust file(s) from source scanning: 18 file(s) no Cargo target reaches.
+Set includeNonShippedSources to include them.
 ```
 
 Pass `includeNonShippedSources: true` to `rust_audit_project` to include them. `rust_review_current_diff` never applies this filter — if you changed a test target, you changed it on purpose, so it is reviewed.
