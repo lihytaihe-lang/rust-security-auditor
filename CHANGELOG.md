@@ -49,7 +49,7 @@ The first release that installs and runs. Not on npm yet — install from a chec
 - **The suppression marker is now `rust-security-auditor:`.** The previous `rustsec-auditor:` marker collides with the unrelated [RustSec](https://rustsec.org) project. Existing comments keep working, and the scanner warns when it sees the deprecated form. Suggested suppression snippets use the new marker.
 - Per-file size (2 MiB) and total file count (50,000) limits now bound a scan, so pointing the tool at an unexpectedly large directory cannot stall the MCP client.
 - `npm test` no longer depends on `find` and `xargs`, so it runs identically on Windows.
-- Internal planning and stage-tracking documents moved to `docs/internal/`.
+- Internal planning and stage-tracking documents are no longer kept in the repository.
 - README rewritten to lead with installation and capabilities; `SECURITY.md` now points at GitHub private vulnerability reporting and states what is in and out of scope.
 
 ### Known Limitations
