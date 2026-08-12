@@ -247,7 +247,13 @@ function isTestAttribute(line: string): boolean {
   // in production builds, so it must not lower a finding's severity.
   if (/#\s*\[\s*test\s*\]/.test(line)) return true;
 
-  const cfg = /#\s*\[\s*cfg\s*\((.*)\)\s*\]/.exec(line);
+  // The argument list is length-bounded on purpose. An unbounded `.*` here is
+  // quadratic: every `#[cfg(` in the line starts a scan to the end of the line
+  // looking for `)]`, so a single crafted line of repeated `#[cfg(a` stalls the
+  // scan for minutes. Bounding it keeps the work linear, and a cfg longer than
+  // the bound simply fails to match, which leaves the finding at production
+  // severity — the conservative direction.
+  const cfg = /#\s*\[\s*cfg\s*\((.{0,512})\)\s*\]/.exec(line);
   if (cfg?.[1] === undefined) return false;
 
   return definitelyRequiresTest(cfg[1]);

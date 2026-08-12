@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses [semantic versioning](https://semver.org/) — while it is pre-1.0, breaking changes may land in a minor release.
 
+## [Unreleased]
+
+### Security hardening
+
+- **A crafted Rust file could stall a scan.** Two scanner patterns used ambiguous quantifiers, so a single long line — well under the 2 MiB per-file cap — made matching quadratic. On a 512 KiB line, the `#[cfg(...)]` attribute match took 18.1 seconds and the `transmute` match took 93.0 seconds; both now finish in under 150 ms. The argument list in `#[cfg(...)]` is length-bounded, and the whitespace run before a turbofish belongs to the optional group rather than being split across two runs ([`src/scanners/rustLexer.ts`](src/scanners/rustLexer.ts), [`src/scanners/unsafeScanner.ts`](src/scanners/unsafeScanner.ts)). This matters because the scanner reads Rust it does not trust.
+- Suppression directives now match the rule id and slice the rest of the line, instead of capturing the remainder with a second quantifier that competed with the first for the same characters. Parsing is unchanged; the line scope is now stated directly rather than resting on `.` not crossing a newline.
+
 ## [0.1.2] - 2026-08-12
 
 The first release that installs and runs. Not on npm yet — install from a checkout, see the README.
