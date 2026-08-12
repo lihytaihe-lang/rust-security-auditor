@@ -203,6 +203,43 @@ Not published yet. Once it is, `npx --yes rust-security-auditor` replaces the wh
 
 For debugging a checkout without a client, `npm --silent run mcp` rebuilds and launches in one step.
 
+## Using it
+
+Once the server is configured, you talk to your agent normally. It picks the tool and passes your project path; you read the findings. Three situations cover almost everything.
+
+**Taking over a codebase, or evaluating one.** Ask for a full audit and give it the project path:
+
+> Audit /path/to/my-rust-project for security risk.
+
+You get an overall risk level, counts by severity and rule, the top findings, grouped review signals, and which areas deserve attention first. Start here when the code is new to you, when you are deciding whether to depend on a crate, or before a release.
+
+**Before a commit, especially right after generating code.** With the project already open, just ask:
+
+> Review my current changes before I commit.
+
+You get a `block` / `needs_attention` / `pass` decision, what this change introduced, and any pre-existing code close enough to matter. This is the one to run every time — it stays quiet when a change is clean, so it costs nothing to keep in the loop.
+
+**Before a release, on the risks you already accepted.** Suppressions carry an owner, a ticket, and an expiry date:
+
+> List the accepted risks and show me anything expired.
+
+### Reading a finding
+
+Every finding answers four questions, so you can decide without opening the rule source: what was found and where, the evidence line, why it matters and what could go wrong, and a suggested fix. From there:
+
+- **It is a real problem** — fix it. The suggested fix and suggested tests are a starting point, not a verdict.
+- **It is fine and you can say why** — record that decision in the code rather than ignoring the finding:
+
+  ```rust
+  // rust-security-auditor: ignore RSA-UNSAFE-BLOCK owner=@you ticket=SEC-123 until=2026-12-31 -- pointer is validated by the caller, reviewed in PR #42
+  unsafe { *ptr }
+  ```
+
+  The reason is required. It expires, and an expired acceptance comes back into the report — so this is an audit trail, not a mute button.
+- **The tool is wrong** — that is a bug worth reporting. Open a [false positive issue](https://github.com/lihytaihe-lang/rust-security-auditor/issues/new?template=false-positive.yml) with the minimal snippet.
+
+A `high_risk` label on a crate that uses `unsafe` deliberately means "many findings", not "dangerous". Read the findings.
+
 ## The Five Tools
 
 | Tool | Use it for |
@@ -333,4 +370,4 @@ See [SECURITY.md](SECURITY.md) for reporting a vulnerability in this tool and fo
 
 ## Status
 
-v0.1.x local-first MCP preview, released under Apache-2.0. Local, read-only Rust review — not a hosted scanner, ChatGPT App, or marketplace product. The latest release is [v0.1.2](https://github.com/lihytaihe-lang/rust-security-auditor/releases/tag/v0.1.2); nothing is published to npm yet. See [ROADMAP.md](ROADMAP.md) for what is planned and what is deliberately out of scope.
+Apache-2.0. The latest release is [v0.1.2](https://github.com/lihytaihe-lang/rust-security-auditor/releases/tag/v0.1.2); not on npm yet. [ROADMAP.md](ROADMAP.md) covers what is planned and what is deliberately out of scope.
