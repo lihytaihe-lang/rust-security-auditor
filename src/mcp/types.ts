@@ -56,9 +56,9 @@ export interface RustReviewCurrentDiffInput {
 
 export interface RustListAcceptedRisksInput {
   projectPath: string;
-  includeExpired: boolean;
-  includeInvalid: boolean;
-  outputFormat: OutputFormat;
+  includeExpired?: boolean | undefined;
+  includeInvalid?: boolean | undefined;
+  outputFormat?: OutputFormat | undefined;
   pathMode?: PathMode | undefined;
 }
 

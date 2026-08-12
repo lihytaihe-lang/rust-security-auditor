@@ -56,6 +56,43 @@ describe("MCP audit tools", () => {
     });
   });
 
+  it("asks only for a project path", async () => {
+    // An agent calls these tools by reading the schema. Every switch has a
+    // documented default, so requiring one makes the obvious call fail with a
+    // validation error instead of running. `rust_list_accepted_risks` required
+    // includeExpired, includeInvalid, and outputFormat even though its handler
+    // already treated all three as optional.
+    await withMcpClient(async (client) => {
+      const result = await client.listTools();
+
+      for (const tool of result.tools) {
+        assert.deepEqual(
+          tool.inputSchema.required ?? [],
+          ["projectPath"],
+          `${tool.name} asks the caller for more than a project path`
+        );
+      }
+    });
+  });
+
+  it("never rejects a project-path-only call as invalid arguments", async () => {
+    // A tool may still refuse the work for a domain reason — reviewing the
+    // current diff outside a git repository, for one. What it must not do is
+    // refuse to run at all because a switch with a default was left unset.
+    // A schema rejection comes back as an error result, not a thrown error, so
+    // both paths have to be read for this to guard anything.
+    await withMcpClient(async (client) => {
+      for (const name of mcpToolNames) {
+        const message = await client.callTool({ name, arguments: { projectPath: suppressedFixturePath } }).then(
+          (result) => JSON.stringify(result.content),
+          (error: unknown) => String(error)
+        );
+
+        assert.doesNotMatch(message, /invalid arguments|input validation/i, `${name} rejected a project-path-only call`);
+      }
+    });
+  });
+
   it("calls an MCP tool through an MCP client transport", async () => {
     await withMcpClient(async (client) => {
       const result = await client.callTool({

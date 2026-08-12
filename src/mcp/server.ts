@@ -185,11 +185,15 @@ export function createRustSecurityAuditorMcpServer(): McpServer {
           .describe("Absolute or relative local directory for a Rust Cargo project or workspace; only files under this directory are scanned."),
         includeExpired: z
           .boolean()
-          .describe("When true, include expired accepted-risk suppression comments in acceptedRisks and the Markdown report."),
+          .optional()
+          .describe("When true, include expired accepted-risk suppression comments in acceptedRisks and the Markdown report. Defaults to false."),
         includeInvalid: z
           .boolean()
-          .describe("When true, include invalid accepted-risk suppression comments in acceptedRisks and the Markdown report."),
-        outputFormat: outputFormatSchema.describe("Set to json for structured JSON; set to markdown to include reportMarkdown text for display."),
+          .optional()
+          .describe("When true, include invalid accepted-risk suppression comments in acceptedRisks and the Markdown report. Defaults to false."),
+        outputFormat: outputFormatSchema
+          .optional()
+          .describe("Omit or set to json for structured JSON; set to markdown to also include reportMarkdown text for display."),
         pathMode: pathModeSchema
           .optional()
           .describe("Controls paths in reportMarkdown. Defaults to relative to avoid leaking local absolute paths.")
