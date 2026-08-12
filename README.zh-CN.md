@@ -185,6 +185,16 @@ Cursor 的配置块放进项目的 `.cursor/mcp.json`，或用户级的 `~/.curs
 
 VS Code 的配置块放进 `.vscode/mcp.json`，或通过 **MCP: Open User Configuration** 打开的用户级 `mcp.json`。
 
+**Qoder、ZCode 和 Kimi Code** 用的是与 Cursor 相同的 `mcpServers` 结构，区别只在放进哪个文件：
+
+| 宿主 | 配置块放在哪 |
+| --- | --- |
+| [Qoder](https://docs.qoder.com/user-guide/chat/model-context-protocol) | MCP 设置 → **+ Add** 会打开一个 JSON 编辑器，粘贴后保存 |
+| [ZCode](https://zcode.z.ai/en/docs/mcp-services) | `.zcode/config.json`——它也能直接导入已有的 Claude Code MCP 配置 |
+| [Kimi Code CLI](https://moonshotai.github.io/kimi-code/en/customization/mcp.html) | `~/.kimi-code/mcp.json`，或项目内的 `.kimi-code/mcp.json`；用 `/mcp-config` 也能对话式添加 |
+
+各家的配置格式和文件位置各自独立演进，使用前请复查各自的官方文档。
+
 机器可读版本见 [`examples/mcp-client-config.json`](examples/mcp-client-config.json) 和 [`examples/codex-plugin-config.json`](examples/codex-plugin-config.json)。
 
 ### npm

@@ -135,5 +135,41 @@
       "symptom": "Accepted risk inventory omits expired or invalid suppressions.",
       "check": "Call rust_list_accepted_risks with includeExpired=true and includeInvalid=true."
     }
-  ]
+  ],
+  "additionalHosts": {
+    "note": "Same mcpServers block as Cursor; only the configuration file differs. Shapes taken from each vendor's documentation.",
+    "qoder": {
+      "configLocation": "MCP settings -> + Add opens a JSON editor",
+      "mcpServers": {
+        "rust-security-auditor": {
+          "command": "node",
+          "args": [
+            "/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"
+          ]
+        }
+      }
+    },
+    "zcode": {
+      "configLocation": ".zcode/config.json",
+      "mcpServers": {
+        "rust-security-auditor": {
+          "command": "node",
+          "args": [
+            "/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"
+          ]
+        }
+      }
+    },
+    "kimi-code": {
+      "configLocation": "~/.kimi-code/mcp.json or .kimi-code/mcp.json",
+      "mcpServers": {
+        "rust-security-auditor": {
+          "command": "node",
+          "args": [
+            "/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"
+          ]
+        }
+      }
+    }
+  }
 }
