@@ -183,7 +183,17 @@ Put the Cursor block in `.cursor/mcp.json` for a project or `~/.cursor/mcp.json`
 }
 ```
 
-Put the VS Code block in `.vscode/mcp.json` or in the user `mcp.json` opened by **MCP: Open User Configuration**. Host formats and configuration locations change independently, so recheck the [Claude Code docs](https://code.claude.com/docs/en/mcp), [Claude Desktop docs](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop), [Codex MCP docs](https://learn.chatgpt.com/docs/extend/mcp), [Cursor MCP docs](https://docs.cursor.com/context/model-context-protocol), and [VS Code MCP reference](https://code.visualstudio.com/docs/agents/reference/mcp-configuration) before use.
+Put the VS Code block in `.vscode/mcp.json` or in the user `mcp.json` opened by **MCP: Open User Configuration**.
+
+**Qoder, ZCode, and Kimi Code** take the same `mcpServers` block as Cursor — only the file differs:
+
+| Host | Where the block goes |
+| --- | --- |
+| [Qoder](https://docs.qoder.com/user-guide/chat/model-context-protocol) | MCP settings → **+ Add** opens a JSON editor; paste the block and save |
+| [ZCode](https://zcode.z.ai/en/docs/mcp-services) | `.zcode/config.json` — it can also import an existing Claude Code MCP config |
+| [Kimi Code CLI](https://moonshotai.github.io/kimi-code/en/customization/mcp.html) | `~/.kimi-code/mcp.json`, or the project-local `.kimi-code/mcp.json`; `/mcp-config` adds it conversationally |
+
+Host formats and configuration locations change independently, so recheck the [Claude Code docs](https://code.claude.com/docs/en/mcp), [Claude Desktop docs](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop), [Codex MCP docs](https://learn.chatgpt.com/docs/extend/mcp), [Cursor MCP docs](https://docs.cursor.com/context/model-context-protocol), [VS Code MCP reference](https://code.visualstudio.com/docs/agents/reference/mcp-configuration), and each vendor's page linked above before use.
 
 Machine-readable versions of these blocks live in [`examples/mcp-client-config.json`](examples/mcp-client-config.json) and [`examples/codex-plugin-config.json`](examples/codex-plugin-config.json).
 
