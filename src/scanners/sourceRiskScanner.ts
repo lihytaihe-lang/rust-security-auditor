@@ -3,7 +3,7 @@ import { createScannerFinding, lineEvidence } from "./findingUtils.js";
 import { discoverRustProject, type RustProject } from "./projectScanner.js";
 import { finalizeScannerResult } from "./resultUtils.js";
 import { findTestCodeLines, isImportLine, maskRustSource } from "./rustLexer.js";
-import { isBuildScriptPath, readTextLines } from "./scannerUtils.js";
+import { isBuildScriptPath } from "./scannerUtils.js";
 import type { ScannerContext, ScannerResult, SecurityScanner } from "./types.js";
 
 export interface SourceRiskScannerContext extends ScannerContext {
@@ -19,18 +19,30 @@ export class SourceRiskScanner implements SecurityScanner<SourceRiskScannerConte
   readonly name = "SourceRiskScanner";
 
   async scan(options: SourceRiskScannerContext): Promise<ScannerResult> {
-    const project = options.project ?? (await discoverRustProject(options.workspacePath));
+    const project = options.project ?? (await discoverRustProject(options.workspacePath, options.sourceReader));
     const findings: Finding[] = [];
 
     for (const sourceFile of project.rustSourceFiles) {
       if (isBuildScriptPath(sourceFile.absolutePath)) continue;
 
-      const lines = await readTextLines(sourceFile.absolutePath);
-      findings.push(...scanSourceRiskLines(sourceFile.file, lines));
+      const lines = await project.sourceReader.readTextLines(sourceFile.absolutePath, sourceFile.file, "rust", "source_risk_scan");
+      if (lines === undefined) continue;
+      const masked = maskRustSource(lines);
+      if (!masked.isComplete) {
+        project.sourceReader.recordIncomplete(
+          sourceFile.file,
+          "rust",
+          "source_risk_scan",
+          "lexical_incomplete",
+          `Rust lexical analysis is incomplete (${masked.limitation ?? "unknown limitation"}); test-only severity reductions were disabled.`
+        );
+      }
+      findings.push(...scanSourceRiskLines(sourceFile.file, lines, masked));
     }
 
     return await finalizeScannerResult(options.workspacePath, findings, [], {
-      includeSuppressed: options.includeSuppressed === true
+      includeSuppressed: options.includeSuppressed === true,
+      sourceReader: project.sourceReader
     });
   }
 }
@@ -39,9 +51,8 @@ export function scanSourceRiskText(file: string, source: string): Finding[] {
   return scanSourceRiskLines(file, source.split(/\r?\n/));
 }
 
-function scanSourceRiskLines(file: string, lines: readonly string[]): Finding[] {
-  const masked = maskRustSource(lines);
-  const testLines = findTestCodeLines(masked.withoutLiterals);
+function scanSourceRiskLines(file: string, lines: readonly string[], masked = maskRustSource(lines)): Finding[] {
+  const testLines = findTestCodeLines(masked.withoutLiterals, masked.isComplete);
   const findings: Finding[] = [];
 
   masked.withoutLiterals.forEach((codeLine, index) => {

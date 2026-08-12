@@ -2,21 +2,32 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses [semantic versioning](https://semver.org/) — while it is pre-1.0, breaking changes may land in a minor release.
 
-## [0.1.2] - 2026-08-11
+## [0.1.2] - 2026-08-11 (publication status: owner verification required)
 
-First release published to npm.
+Local package metadata is `0.1.2`. npm publication, Git tag, release, and prior artifact facts have not been independently verified in this working tree; do not treat this entry as a publication claim.
+
+### Security hardening in the current working tree
+
+- Security directives and `SAFETY:` notes now consume only lexically confirmed Rust comments. Strings, raw/byte strings, character literals, identifiers, and attributes cannot forge those semantics.
+- Source reads now share bounded, root-contained, no-symlink sessions with structured coverage. They verify canonical containment and file identity before and after open, then read no more than the opened descriptor's verified size. Current diff decisions fail closed whenever a required Rust/Cargo input is incomplete.
+- Recursive discovery now revalidates directory containment after open and caps directory-only traversal; a later optional context read cannot erase an earlier incomplete current-diff coverage receipt.
+- Rule-to-tool placement uses explicit `toolScopes`, not rule-id prefixes; Cargo source replacement and runner findings appear in dependency review.
+- v0.1.x packaging removes the hosted runtime from bins, scripts, public exports, build output, and tarballs. The local release verifier creates a real tarball, scans it, installs it fresh, and runs the installed stdio binary.
 
 ### Fixed
 
 - **The installed executable did nothing.** The entry-point check compared `process.argv[1]` against `import.meta.url` without resolving symbolic links, so the server started and exited silently whenever it was launched through a linked binary — which is how npm, `npx`, and `npm link` all invoke it. Now resolved with `realpath` on both sides ([`src/utils/paths.ts`](src/utils/paths.ts)).
 - The version advertised over MCP (`0.1.0`) no longer drifts from the package version; both come from `src/version.ts` and a test keeps them equal.
 - Patterns inside block comments, doc examples, and string literals are no longer reported as findings. The scanner now tracks Rust comment and literal boundaries, including nested block comments, raw strings, byte strings, and char literals versus lifetimes ([`src/scanners/rustLexer.ts`](src/scanners/rustLexer.ts)).
+- Unterminated Rust literals now disable test-only severity reductions and mark scan coverage incomplete, so a forged `#[cfg(test)]` cannot turn a production-risk finding into a passing current-diff review.
+- Accepted-risk inventory output now includes structured scan coverage and warnings; unreadable or linked source cannot be represented as an empty inventory.
+- Artifact privacy checks now redact and detect common temporary, root, and service POSIX directories as well as drive-root Windows paths.
 - A `use std::process::Command;` import no longer counts as command execution.
 - Trailing `#` comments in `Cargo.toml` are stripped before matching, so a commented-out `git = ...` no longer produces a finding.
 
 ### Added
 
-- **npm distribution.** Install with `npx -y rust-security-auditor@latest` instead of cloning the repository. The package exposes `rust-security-auditor` as its primary binary.
+- **Primary package binary.** Package metadata exposes `rust-security-auditor` as its primary local stdio binary. A registry installation command is intentionally omitted here until publication is owner-verified.
 - **Nine new rules:**
   - `RSA-UNSAFE-GET-UNCHECKED` — `get_unchecked` / `get_unchecked_mut` bounds-check removal.
   - `RSA-UNSAFE-UNCHECKED-CALL` — other `*_unchecked` APIs such as `from_utf8_unchecked` and `unwrap_unchecked`.
@@ -52,12 +63,8 @@ First release published to npm.
 - Changed-line-aware current diff review with review decisions.
 - Accepted-risk suppression workflow and inventory tool.
 - Markdown and JSON reports with compact and full modes.
-- Fixture-safe hosted MCP prototype (not deployed).
+- Historical hosted experiment; it is deliberately absent from the current v0.1.x source, exports, build output, and package boundary.
 
 ## [0.1.0] - 2026-08-11
 
 - Initial local MCP preview.
-
-[0.1.2]: https://github.com/lihytaihe-lang/rust-security-auditor/releases/tag/v0.1.2
-[0.1.1]: https://github.com/lihytaihe-lang/rust-security-auditor/releases/tag/v0.1.1
-[0.1.0]: https://github.com/lihytaihe-lang/rust-security-auditor/releases/tag/v0.1.0

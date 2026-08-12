@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
@@ -24,6 +24,7 @@ const vulnerableFixturePath = resolve("test/fixtures/vulnerable-rust-project");
 const dependencyRiskFixturePath = resolve("test/fixtures/dependency-risk");
 const unsafeDocumentedFixturePath = resolve("test/fixtures/unsafe-documented");
 const suppressedFixturePath = resolve("test/fixtures/suppressed-rust-project");
+const cargoConfigFixturePath = resolve("test/fixtures/cargo-config-risk");
 
 describe("MCP audit tools", () => {
   it("lists MCP tools through an MCP client transport", async () => {
@@ -250,6 +251,14 @@ describe("MCP audit tools", () => {
     assert.equal(output.findings.some((finding) => finding.ruleId.startsWith("RSA-UNSAFE-")), false);
   });
 
+  it("uses explicit tool scopes for Cargo config findings", async () => {
+    const output = await rustAuditDependencies({ projectPath: cargoConfigFixturePath });
+
+    assert.equal(output.error, undefined);
+    assert.ok(output.findings.some((finding) => finding.ruleId === "RSA-CARGO-SOURCE-REPLACEMENT"));
+    assert.ok(output.findings.some((finding) => finding.ruleId === "RSA-CARGO-RUNNER"));
+  });
+
   it("rust_audit_dependencies compact report uses a supply-chain checklist", async () => {
     const output = await rustAuditDependencies({
       projectPath: dependencyRiskFixturePath,
@@ -408,6 +417,58 @@ describe("MCP audit tools", () => {
     assert.equal(withoutInvalid.acceptedRisks.some((risk) => !risk.isValid), false);
     assert.equal(withoutInvalid.summary.expiredCount, 1);
     assert.equal(withoutInvalid.summary.invalidCount, 0);
+  });
+
+  it("rust_list_accepted_risks rejects a local directory that is not a Rust Cargo project", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rust-security-auditor-accepted-risk-not-rust-"));
+
+    try {
+      await writeFile(join(root, "notes.rs"), "// rustsec-auditor: ignore RSA-UNSAFE-BLOCK -- no cargo\n");
+
+      const output = await rustListAcceptedRisks({
+        projectPath: root,
+        includeExpired: true,
+        includeInvalid: true,
+        outputFormat: "json"
+      });
+
+      assert.equal(output.error?.code, "PROJECT_PATH_NOT_RUST_PROJECT");
+      assert.equal(output.acceptedRisks.length, 0);
+      assert.match(output.error?.message ?? "", /not a Rust project/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rust_list_accepted_risks reports incomplete coverage instead of presenting a linked source as empty", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rust-security-auditor-accepted-risk-link-"));
+    const outside = await mkdtemp(join(tmpdir(), "rust-security-auditor-accepted-risk-link-outside-"));
+
+    try {
+      await mkdir(join(root, "src"));
+      await writeFile(join(root, "Cargo.toml"), '[package]\nname = "linked_inventory"\nversion = "0.1.0"\n');
+      const outsideFile = join(outside, "lib.rs");
+      await writeFile(outsideFile, "// rustsec-auditor: ignore RSA-UNSAFE-BLOCK -- external control\n");
+      await symlink(outsideFile, join(root, "src/lib.rs"));
+
+      const output = await rustListAcceptedRisks({
+        projectPath: root,
+        includeExpired: true,
+        includeInvalid: true,
+        outputFormat: "markdown"
+      });
+
+      assert.equal(output.error, undefined);
+      assert.equal(output.acceptedRisks.length, 0);
+      assert.equal(output.scanCoverage?.complete, false);
+      assert.ok(output.warnings?.some((warning) => warning.includes("symbolic_link")));
+      assert.ok(output.scanCoverage?.entries.some((entry) => entry.file === "src/lib.rs" && entry.reason === "symbolic_link"));
+      assert.match(output.reportMarkdown ?? "", /## Scan Coverage/);
+      assert.match(output.reportMarkdown ?? "", /symbolic_link/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 
   it("rust_review_current_diff classifies introduced, context, and pre-existing findings", async () => {
@@ -855,6 +916,77 @@ describe("MCP audit tools", () => {
     assert.deepEqual(includePreExistingDecision.blockingFindingIds, []);
   });
 
+  it("does not alias a backslash file name onto a harmless sibling", { skip: process.platform === "win32" }, async () => {
+    const { tempRoot, repoPath } = await createDiffReviewRepo();
+
+    try {
+      // Two distinct files: `src/alias.rs` and a file whose *name* contains a
+      // literal backslash. Rewriting `\` to `/` made a change to the second
+      // look like a change to the first, so the review reported the harmless
+      // sibling's findings — none — and returned pass/safeToCommit.
+      await writeFile(join(repoPath, "src/alias.rs"), "pub fn harmless() {}\n", "utf8");
+      await writeFile(join(repoPath, "src\\alias.rs"), "pub fn other() {}\n", "utf8");
+      await runShellCommandOrThrow("git", ["add", "."], { cwd: repoPath });
+      await runShellCommandOrThrow("git", ["commit", "-m", "add alias pair"], { cwd: repoPath });
+
+      await writeFile(join(repoPath, "src\\alias.rs"), "pub fn other() {}\n\npub static mut EVIL: u64 = 0;\n", "utf8");
+
+      const output = await rustReviewCurrentDiff({ projectPath: repoPath, outputFormat: "json" });
+
+      assert.equal(output.error, undefined);
+      assert.equal(output.reviewDecision?.status, "block");
+      assert.equal(output.reviewDecision?.safeToCommit, false);
+      assert.deepEqual(output.diffAffectedFiles, ["src\\alias.rs"]);
+      assert.deepEqual(
+        output.findings.map((finding) => [finding.ruleId, finding.file]),
+        [["RSA-UNSAFE-STATIC-MUT", "src\\alias.rs"]]
+      );
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a hard block when a required diff input was not fully scanned", () => {
+    const finding = testFinding({
+      id: "RSA-UNSAFE-STATIC-MUT-1",
+      ruleId: "RSA-UNSAFE-STATIC-MUT",
+      severity: "high",
+      confidence: "high",
+      category: "concurrency"
+    });
+    const blockingFinding: DiffAwareFinding = {
+      finding,
+      diffContext: {
+        relation: "introduced_by_diff",
+        nearestChangedLine: 10,
+        distance: 0
+      }
+    };
+
+    const decision = inferReviewDecision([blockingFinding], {
+      incompleteCoverage: [
+        {
+          status: "incomplete",
+          file: "src/generated.rs",
+          inputType: "rust",
+          stage: "rust_context",
+          reason: "file_too_large",
+          message: "File exceeds the scan limit.",
+          relevantToDiff: true
+        }
+      ]
+    });
+
+    // Incomplete coverage may only make a verdict stricter. Ranking it above
+    // the blocking check downgraded `block` to `needs_attention` exactly when
+    // the scan was least trustworthy.
+    assert.equal(decision.status, "block");
+    assert.equal(decision.safeToCommit, false);
+    assert.deepEqual(decision.blockingFindingIds, ["RSA-UNSAFE-STATIC-MUT-1"]);
+    assert.match(decision.reason, /not fully scanned/);
+    assert.match(decision.reason, /src\/generated\.rs/);
+  });
+
   it("rust_review_current_diff reports active, invalid, and expired suppressions", async () => {
     const { tempRoot, repoPath } = await createDiffReviewRepo();
 
@@ -965,6 +1097,63 @@ describe("MCP audit tools", () => {
       assert.equal(output.error, undefined);
       assert.equal(output.diffReview?.mode, "staged");
       assert.ok(output.enrichedFindings?.some((item) => item.diffContext.relation === "introduced_by_diff"));
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when a changed Rust input is a symbolic link", async () => {
+    const { tempRoot, repoPath } = await createDiffReviewRepo();
+
+    try {
+      const outsideFile = join(tempRoot, "outside.rs");
+      await writeFile(outsideFile, "pub fn outside(ptr: *const u8) -> u8 { unsafe { *ptr } }\n");
+      await symlink(outsideFile, join(repoPath, "src/linked.rs"));
+      await runShellCommandOrThrow("git", ["add", "src/linked.rs"], { cwd: repoPath });
+
+      const output = await rustReviewCurrentDiff({ projectPath: repoPath, staged: true, outputFormat: "markdown" });
+
+      assert.equal(output.error, undefined);
+      assert.equal(output.reviewDecision?.status, "needs_attention");
+      assert.equal(output.reviewDecision?.safeToCommit, false);
+      assert.ok(
+        output.scanCoverage?.entries.some(
+          (entry) => entry.file === "src/linked.rs" && entry.relevantToDiff === true && entry.reason === "symbolic_link"
+        )
+      );
+      assert.match(output.reportMarkdown ?? "", /Scan Coverage/);
+      assert.match(output.reportMarkdown ?? "", /symbolic_link/);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when malformed literals could forge a test-only current-diff downgrade", async () => {
+    const { tempRoot, repoPath } = await createDiffReviewRepo();
+
+    try {
+      await writeFile(
+        join(repoPath, "src/lib.rs"),
+        [
+          'const FORGED: &str = "unterminated',
+          "#[cfg(test)]",
+          "pub fn changed(v: &[u8]) { unsafe { v.get_unchecked(0); } }"
+        ].join("\n"),
+        "utf8"
+      );
+
+      const output = await rustReviewCurrentDiff({ projectPath: repoPath, outputFormat: "markdown" });
+
+      assert.equal(output.error, undefined);
+      assert.equal(output.reviewDecision?.status, "needs_attention");
+      assert.equal(output.reviewDecision?.safeToCommit, false);
+      assert.ok(output.findings.some((finding) => finding.ruleId === "RSA-UNSAFE-BLOCK" && finding.severity === "medium"));
+      assert.ok(
+        output.scanCoverage?.entries.some(
+          (entry) => entry.file === "src/lib.rs" && entry.relevantToDiff === true && entry.reason === "lexical_incomplete"
+        )
+      );
+      assert.match(output.reportMarkdown ?? "", /lexical_incomplete/);
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

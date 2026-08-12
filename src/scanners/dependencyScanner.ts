@@ -4,7 +4,7 @@ import { discoverRustProject, type RustProject } from "./projectScanner.js";
 import { finalizeScannerResult } from "./resultUtils.js";
 import { isImportLine, maskRustSource } from "./rustLexer.js";
 import type { RuleId } from "./rules.js";
-import { firstMeaningfulLine, readTextLines, stripTomlComment } from "./scannerUtils.js";
+import { firstMeaningfulLine, stripTomlComment } from "./scannerUtils.js";
 import type { ScannerContext, ScannerResult, SecurityScanner } from "./types.js";
 
 export interface DependencyScannerContext extends ScannerContext {
@@ -15,16 +15,18 @@ export class DependencyScanner implements SecurityScanner<DependencyScannerConte
   readonly name = "DependencyScanner";
 
   async scan(options: DependencyScannerContext): Promise<ScannerResult> {
-    const project = options.project ?? (await discoverRustProject(options.workspacePath));
+    const project = options.project ?? (await discoverRustProject(options.workspacePath, options.sourceReader));
     const findings: Finding[] = [];
 
     for (const manifest of project.cargoTomlFiles) {
-      const lines = await readTextLines(manifest.absolutePath);
+      const lines = await project.sourceReader.readTextLines(manifest.absolutePath, manifest.file, "cargo_toml", "dependency_scan");
+      if (lines === undefined) continue;
       findings.push(...scanManifestLines(manifest.file, lines));
     }
 
     for (const lockfile of project.cargoLockFiles) {
-      const lines = await readTextLines(lockfile.absolutePath);
+      const lines = await project.sourceReader.readTextLines(lockfile.absolutePath, lockfile.file, "cargo_lock", "dependency_scan");
+      if (lines === undefined) continue;
       lines.forEach((line, index) => {
         if (/^\s*source\s*=\s*"git\+/.test(line)) {
           findings.push(createSimpleFinding("RSA-DEP-LOCK-GIT", lockfile.file, index + 1, line));
@@ -33,17 +35,20 @@ export class DependencyScanner implements SecurityScanner<DependencyScannerConte
     }
 
     for (const config of project.cargoConfigFiles) {
-      const lines = await readTextLines(config.absolutePath);
+      const lines = await project.sourceReader.readTextLines(config.absolutePath, config.file, "cargo_config", "dependency_scan");
+      if (lines === undefined) continue;
       findings.push(...scanCargoConfigLines(config.file, lines));
     }
 
     for (const buildScript of project.buildScripts) {
-      const lines = await readTextLines(buildScript.absolutePath);
+      const lines = await project.sourceReader.readTextLines(buildScript.absolutePath, buildScript.file, "build_script", "dependency_scan");
+      if (lines === undefined) continue;
       findings.push(...scanBuildScriptLines(buildScript.file, lines));
     }
 
     return await finalizeScannerResult(options.workspacePath, findings, [], {
-      includeSuppressed: options.includeSuppressed === true
+      includeSuppressed: options.includeSuppressed === true,
+      sourceReader: project.sourceReader
     });
   }
 }

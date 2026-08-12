@@ -4,7 +4,6 @@ import { discoverRustProject, type RustProject } from "./projectScanner.js";
 import { finalizeScannerResult } from "./resultUtils.js";
 import { findTestCodeLines, maskRustSource } from "./rustLexer.js";
 import type { RuleId } from "./rules.js";
-import { readTextLines } from "./scannerUtils.js";
 import type { ScannerContext, ScannerResult, SecurityScanner } from "./types.js";
 
 export interface UnsafeScannerContext extends ScannerContext {
@@ -15,16 +14,28 @@ export class UnsafeScanner implements SecurityScanner<UnsafeScannerContext> {
   readonly name = "UnsafeScanner";
 
   async scan(options: UnsafeScannerContext): Promise<ScannerResult> {
-    const project = options.project ?? (await discoverRustProject(options.workspacePath));
+    const project = options.project ?? (await discoverRustProject(options.workspacePath, options.sourceReader));
     const findings: Finding[] = [];
 
     for (const sourceFile of project.rustSourceFiles) {
-      const lines = await readTextLines(sourceFile.absolutePath);
-      findings.push(...scanUnsafeRustLines(sourceFile.file, lines));
+      const lines = await project.sourceReader.readTextLines(sourceFile.absolutePath, sourceFile.file, "rust", "unsafe_scan");
+      if (lines === undefined) continue;
+      const masked = maskRustSource(lines);
+      if (!masked.isComplete) {
+        project.sourceReader.recordIncomplete(
+          sourceFile.file,
+          "rust",
+          "unsafe_scan",
+          "lexical_incomplete",
+          `Rust lexical analysis is incomplete (${masked.limitation ?? "unknown limitation"}); test-only severity reductions were disabled.`
+        );
+      }
+      findings.push(...scanUnsafeRustLines(sourceFile.file, lines, masked));
     }
 
     return await finalizeScannerResult(options.workspacePath, findings, [], {
-      includeSuppressed: options.includeSuppressed === true
+      includeSuppressed: options.includeSuppressed === true,
+      sourceReader: project.sourceReader
     });
   }
 }
@@ -33,9 +44,8 @@ export function scanUnsafeRustText(file: string, source: string): Finding[] {
   return scanUnsafeRustLines(file, source.split(/\r?\n/));
 }
 
-function scanUnsafeRustLines(file: string, lines: readonly string[]): Finding[] {
-  const masked = maskRustSource(lines);
-  const testLines = findTestCodeLines(masked.withoutLiterals);
+function scanUnsafeRustLines(file: string, lines: readonly string[], masked = maskRustSource(lines)): Finding[] {
+  const testLines = findTestCodeLines(masked.withoutLiterals, masked.isComplete);
   const findings: Finding[] = [];
 
   masked.withoutLiterals.forEach((codeLine, index) => {
@@ -49,6 +59,7 @@ function scanUnsafeRustLines(file: string, lines: readonly string[]): Finding[] 
         sourceLine: lines[index] ?? codeLine,
         commentFreeLine: masked.withoutComments[index] ?? codeLine,
         sourceLines: lines,
+        commentLines: masked.commentsOnly,
         lineIndex: index,
         inTestCode: testLines.has(index + 1)
       })
@@ -68,6 +79,8 @@ interface UnsafeLineContext {
   /** Comments masked out but literals preserved; use for ABI strings. */
   commentFreeLine: string;
   sourceLines: readonly string[];
+  /** Only confirmed comments; use for comment-based security semantics. */
+  commentLines: readonly string[];
   lineIndex: number;
   inTestCode: boolean;
 }
@@ -155,7 +168,7 @@ function simpleFinding(context: UnsafeLineContext, ruleId: RuleId): Finding {
 }
 
 function unsafeBlockFinding(context: UnsafeLineContext): Finding {
-  const safetyComment = findNearbySafetyComment(context.sourceLines, context.lineIndex);
+  const safetyComment = findNearbySafetyComment(context.commentLines, context.lineIndex);
   const evidence = [lineEvidence(context.lineNumber, context.sourceLine)];
   const testOverrides = testCodeOverrides(context);
 

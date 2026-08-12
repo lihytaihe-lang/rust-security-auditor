@@ -45,9 +45,7 @@ It does not perform full AST, data-flow, control-flow, or taint analysis, and it
 
 ## Local-First Design
 
-The project runs locally as an MCP server. It reads local paths passed by the MCP client, does not upload repositories or scanned code, and is not intended to be exposed as a public network service.
-
-The hosted MCP prototype under `src/mcp/hostedServer.ts` is a fixture-only experiment. It serves built-in fixtures rather than local project files, and it validates `Host` and `Origin` headers against localhost by default. Do not expose it publicly.
+The project runs locally as a stdio MCP server. It reads local paths passed by the MCP client, does not upload repositories or scanned code, and is not intended to be exposed as a public network service. The v0.1.x package contains no hosted runtime, HTTP transport, SaaS scanner, or source-upload path.
 
 ## Handling Sensitive Code
 

@@ -39,7 +39,8 @@ export async function scanRustProject(options: ScannerContext): Promise<RustProj
     suppressedCount: countActiveSuppressions(suppressedFindings),
     expiredSuppressionCount: countExpiredSuppressions(suppressedFindings),
     invalidSuppressionCount: countInvalidSuppressions(suppressedFindings),
-    suppressedFindings
+    suppressedFindings,
+    scanCoverage: projectResult.project.sourceReader.coverage()
   };
 }
 

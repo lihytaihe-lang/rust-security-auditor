@@ -87,3 +87,15 @@ Compact mode keeps the JSON findings complete but hides most per-finding evidenc
 - Confidence values mean pattern-detection confidence, not exploitability confidence.
 - Non-diff audits are not changed-line aware; use `rust_review_current_diff` for commit/PR focus.
 - Findings are review signals and can require human confirmation before code changes.
+
+## Scan Coverage
+
+- Complete: Yes
+- Incomplete inputs: 0
+
+- complete: `build.rs` (build_script/discovery) — Read through the shared bounded source reader.
+- complete: `Cargo.lock` (cargo_lock/dependency_scan) — Read through the shared bounded source reader.
+- complete: `Cargo.toml` (cargo_toml/discovery) — Read through the shared bounded source reader.
+- complete: `crates/local_dep/Cargo.toml` (cargo_toml/discovery) — Read through the shared bounded source reader.
+- complete: `crates/local_dep/src/lib.rs` (rust/source_risk_scan) — Read through the shared bounded source reader.
+- complete: `src/lib.rs` (rust/source_risk_scan) — Read through the shared bounded source reader.

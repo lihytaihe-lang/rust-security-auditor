@@ -1,15 +1,14 @@
 {
   "name": "rust-security-auditor",
   "version": "0.1.2",
-  "description": "Local MCP server for focused Rust security review in Claude Code, Codex, and other MCP clients.",
+  "description": "Local stdio MCP server for focused Rust security review.",
   "type": "module",
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",
   "bin": {
     "rust-security-auditor": "./dist/src/mcp/server.js",
     "rust-security-auditor-mcp": "./dist/src/mcp/server.js",
-    "rust-security-auditor-mcp-call": "./dist/src/mcp/debug.js",
-    "rust-security-auditor-hosted-mcp": "./dist/src/mcp/hostedServer.js"
+    "rust-security-auditor-mcp-call": "./dist/src/mcp/debug.js"
   },
   "exports": {
     ".": "./dist/src/index.js",
@@ -20,15 +19,14 @@
     "./utils/shell": "./dist/src/utils/shell.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node scripts/clean.mjs && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "npm run typecheck",
     "mcp": "npm --silent run build && node dist/src/mcp/server.js",
-    "mcp:hosted": "npm --silent run build && node dist/src/mcp/hostedServer.js",
     "mcp:call": "npm --silent run build && node dist/src/mcp/debug.js",
-    "smoke:hosted": "npm --silent run build && node dist/scripts/smoke_hosted_mcp.js",
     "examples:regenerate": "npm --silent run build && node scripts/regenerate-examples.mjs",
-    "test": "npm run clean && npm run build && node scripts/run-tests.mjs",
+    "verify:package": "npm --silent run build && node scripts/verify-public-package.mjs",
+    "test": "npm run build && node scripts/run-tests.mjs",
     "check": "npm run typecheck && npm test && git diff --check",
     "prepack": "npm run build",
     "clean": "node scripts/clean.mjs"

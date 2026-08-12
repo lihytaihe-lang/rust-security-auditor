@@ -1,5 +1,8 @@
 import type { Category, Confidence, Severity } from "../reports/schemas.js";
 
+/** MCP tool placement is independent from a finding's vulnerability category. */
+export type ToolScope = "project" | "unsafe" | "dependency";
+
 export interface RuleMetadata {
   ruleId: string;
   title: string;
@@ -408,8 +411,53 @@ export const ruleMetadata = {
 
 export type RuleId = keyof typeof ruleMetadata;
 
-export const allRules = Object.values(ruleMetadata);
+/**
+ * One explicit registry entry per rule. Do not infer this from rule-id prefixes
+ * or finding categories: both are report metadata, not an API boundary.
+ */
+export const toolScopesByRule = {
+  "RSA-UNSAFE-BLOCK": ["project", "unsafe"],
+  "RSA-UNSAFE-FN": ["project", "unsafe"],
+  "RSA-UNSAFE-IMPL-SEND": ["project", "unsafe"],
+  "RSA-UNSAFE-IMPL-SYNC": ["project", "unsafe"],
+  "RSA-FFI-EXTERN-C": ["project", "unsafe"],
+  "RSA-UNSAFE-TRANSMUTE": ["project", "unsafe"],
+  "RSA-UNSAFE-MAYBEUNINIT": ["project", "unsafe"],
+  "RSA-UNSAFE-FROM-RAW-PARTS": ["project", "unsafe"],
+  "RSA-UNSAFE-SET-LEN": ["project", "unsafe"],
+  "RSA-UNSAFE-BOX-FROM-RAW": ["project", "unsafe"],
+  "RSA-UNSAFE-GET-UNCHECKED": ["project", "unsafe"],
+  "RSA-UNSAFE-UNCHECKED-CALL": ["project", "unsafe"],
+  "RSA-UNSAFE-STATIC-MUT": ["project", "unsafe"],
+  "RSA-UNSAFE-RAW-PTR-ACCESS": ["project", "unsafe"],
+  "RSA-FFI-CSTR-FROM-PTR": ["project", "unsafe"],
+  "RSA-EXEC-COMMAND": ["project"],
+  "RSA-DEP-GIT": ["project", "dependency"],
+  "RSA-DEP-PATH": ["project", "dependency"],
+  "RSA-DEP-PROC-MACRO": ["project", "dependency"],
+  "RSA-DEP-BUILD-DEPENDENCIES": ["project", "dependency"],
+  "RSA-DEP-LOCK-GIT": ["project", "dependency"],
+  "RSA-BUILD-SCRIPT": ["project", "dependency"],
+  "RSA-BUILD-COMMAND": ["project", "dependency"],
+  "RSA-DEP-VERSION-UNBOUNDED": ["project", "dependency"],
+  "RSA-CARGO-SOURCE-REPLACEMENT": ["project", "dependency"],
+  "RSA-CARGO-RUNNER": ["project", "dependency"]
+} as const satisfies Record<RuleId, readonly ToolScope[]>;
 
-export function getRuleMetadata(ruleId: RuleId): RuleMetadata {
-  return ruleMetadata[ruleId];
+export interface ScopedRuleMetadata extends RuleMetadata {
+  toolScopes: readonly ToolScope[];
+}
+
+export const allRules: readonly ScopedRuleMetadata[] = Object.values(ruleMetadata).map((rule) => ({
+  ...rule,
+  toolScopes: toolScopesByRule[rule.ruleId as RuleId]
+}));
+
+export function getRuleMetadata(ruleId: RuleId): ScopedRuleMetadata {
+  return { ...ruleMetadata[ruleId], toolScopes: toolScopesByRule[ruleId] };
+}
+
+export function ruleHasToolScope(ruleId: string, toolScope: ToolScope): boolean {
+  const scopes: readonly ToolScope[] | undefined = toolScopesByRule[ruleId as RuleId];
+  return scopes?.includes(toolScope) ?? false;
 }

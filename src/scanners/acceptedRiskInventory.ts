@@ -1,11 +1,14 @@
 import { discoverRustProject } from "./projectScanner.js";
-import { readTextLines } from "./scannerUtils.js";
+import { maskRustSource } from "./rustLexer.js";
+import type { SafeSourceReader, ScanCoverage } from "./scannerUtils.js";
 import { isSuppressionExpired, parseSuppressionDirective } from "./suppressions.js";
 
 export interface AcceptedRiskInventoryOptions {
   workspacePath: string;
   includeExpired: boolean;
   includeInvalid: boolean;
+  /** Optional shared reader when inventory participates in a broader scan. */
+  sourceReader?: SafeSourceReader;
 }
 
 export interface AcceptedRiskInventoryEntry {
@@ -33,19 +36,23 @@ export interface AcceptedRiskInventorySummary {
 export interface AcceptedRiskInventoryResult {
   summary: AcceptedRiskInventorySummary;
   acceptedRisks: AcceptedRiskInventoryEntry[];
+  /** Inventory results are partial whenever this is incomplete; callers must surface it. */
+  scanCoverage: ScanCoverage;
 }
 
 export async function listAcceptedRiskInventory(
   options: AcceptedRiskInventoryOptions
 ): Promise<AcceptedRiskInventoryResult> {
-  const project = await discoverRustProject(options.workspacePath);
+  const project = await discoverRustProject(options.workspacePath, options.sourceReader);
   const discoveredRisks: AcceptedRiskInventoryEntry[] = [];
 
   for (const sourceFile of project.rustSourceFiles) {
-    const lines = await readTextLines(sourceFile.absolutePath);
+      const lines = await project.sourceReader.readTextLines(sourceFile.absolutePath, sourceFile.file, "rust", "suppression");
+      if (lines === undefined) continue;
+      const commentsOnly = maskRustSource(lines).commentsOnly;
 
-    for (let index = 0; index < lines.length; index += 1) {
-      const rawLine = lines[index] ?? "";
+      for (let index = 0; index < lines.length; index += 1) {
+      const rawLine = commentsOnly[index] ?? "";
       const directive = parseSuppressionDirective(rawLine);
       if (directive === undefined) continue;
 
@@ -82,7 +89,8 @@ export async function listAcceptedRiskInventory(
 
   return {
     summary: summarizeAcceptedRisks(acceptedRisks),
-    acceptedRisks
+    acceptedRisks,
+    scanCoverage: project.sourceReader.coverage()
   };
 }
 

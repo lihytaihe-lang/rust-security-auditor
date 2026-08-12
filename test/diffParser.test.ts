@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseUnifiedDiff } from "../src/git/index.js";
+import { isPlatformAddressableGitPath, normalizeGitDiffPath, parseUnifiedDiff } from "../src/git/index.js";
 
 describe("unified diff parser", () => {
   it("parses git file paths, hunk headers, added lines, removed lines, and context lines", () => {
@@ -61,5 +61,23 @@ index 0000000..3333333
     assert.deepEqual(diff.files[0]?.hunks[0]?.addedLines, [1, 2]);
     assert.deepEqual(diff.files[0]?.hunks[0]?.removedLines, []);
     assert.deepEqual(diff.files[0]?.hunks[0]?.contextRange, [1, 2]);
+  });
+});
+
+describe("git path identity", () => {
+  it("keeps a literal backslash in a file name instead of treating it as a separator", () => {
+    // Git separates components with `/`. A backslash that survives unquoting
+    // belongs to the name, and rewriting it aliases two distinct files.
+    assert.equal(normalizeGitDiffPath("src\\alias.rs"), "src\\alias.rs");
+    assert.equal(normalizeGitDiffPath("a/src/alias.rs"), "src/alias.rs");
+    assert.equal(normalizeGitDiffPath("b/src/nested/../alias.rs"), "src/alias.rs");
+  });
+
+  it("reports a backslash path as unaddressable on Windows only", () => {
+    // Windows reads the backslash as a separator, so resolving such a path
+    // against the working tree would silently address a different file.
+    assert.equal(isPlatformAddressableGitPath("src\\alias.rs", "win32"), false);
+    assert.equal(isPlatformAddressableGitPath("src\\alias.rs", "linux"), true);
+    assert.equal(isPlatformAddressableGitPath("src/alias.rs", "win32"), true);
   });
 });

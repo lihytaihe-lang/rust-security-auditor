@@ -1,8 +1,8 @@
 # Rust Security Auditor
 
-A local MCP server that reviews Rust code for unsafe, FFI, and supply-chain risk — and tells your coding agent what to look at before you commit.
+A local-first Rust security review MCP server over stdio. It reviews Rust code for unsafe, FFI, and supply-chain risk — and tells your coding agent what to look at before you commit.
 
-It runs entirely on your machine, reads local Cargo projects, and exposes five read-only tools over stdio to Claude Code, Codex, or any other MCP client.
+It runs entirely on your machine, reads local Cargo projects, never modifies the target source tree, and exposes five read-only tools over stdio. It is client-neutral at the protocol layer; that is not a claim that every MCP host has been end-to-end validated.
 
 Ask your agent to review what you just wrote, and you get back the part of the diff that carries risk — actual output, abridged:
 
@@ -37,26 +37,77 @@ Pre-existing unsafe code elsewhere in the file is classified separately and does
 
 Requires Node.js 20 or newer. No Rust toolchain needed — the scanner reads source and manifests, it does not build your project.
 
-**Claude Code**
+### Generic stdio launch model
 
-```bash
-claude mcp add rust-security-auditor -- npx -y rust-security-auditor@latest
+Use the primary installed binary as the MCP command. Its standard input and output are reserved for JSON-RPC; logs go to stderr.
+
+```json
+{
+  "command": "/absolute/path/to/node_modules/.bin/rust-security-auditor",
+  "args": [],
+  "cwd": "/absolute/path/to/rust/project"
+}
 ```
 
-**Claude Desktop, Codex, Cursor, or any other MCP client**
+### Client compatibility and configuration references
+
+The status words in this table are deliberately narrow. “End-to-end verified” means the listed host, host version, operating system, and the MCP `initialize`, `tools/list`, and `tools/call` exchange have an execution record. It is not inferred from protocol compatibility or another host's behavior.
+
+| Host or boundary | Status | Evidence or configuration reference |
+| --- | --- | --- |
+| Installed package stdio boundary | End-to-end verified | 2026-08-11, macOS 26.5.2, Node 25.9.0: a freshly installed tarball was launched through `node_modules/.bin`, then completed `initialize`, `notifications/initialized`, `tools/list`, and `rust_audit_project`. This does not validate an MCP host UI. |
+| Claude Code | Configuration reference from official docs only | Use the Claude Code command below; no Claude Code host run is recorded. |
+| Claude Desktop | Unverified | The current official flow is a Desktop Extension. This package does not ship an `.mcpb` extension, so it provides no Desktop-specific binary configuration or support claim. |
+| Codex CLI, app, and IDE extension | Configuration reference from official docs only | These Codex clients share MCP configuration; the TOML reference below has not been run in any Codex host. |
+| Cursor | Configuration reference from official docs only | Use the Cursor `mcp.json` shape below; no Cursor host run is recorded. |
+| VS Code/Copilot | Configuration reference from official docs only | Use the VS Code `mcp.json` shape below; no VS Code/Copilot host run is recorded. |
+
+**Claude Code — configuration reference**
+
+```bash
+claude mcp add --transport stdio rust-security-auditor -- /absolute/path/to/node_modules/.bin/rust-security-auditor
+```
+
+**Codex CLI, app, and IDE extension — configuration reference**
+
+```toml
+# ~/.codex/config.toml or a trusted project's .codex/config.toml
+[mcp_servers.rust_security_auditor]
+command = "/absolute/path/to/node_modules/.bin/rust-security-auditor"
+cwd = "/absolute/path/to/rust/project"
+```
+
+**Cursor — configuration reference**
 
 ```json
 {
   "mcpServers": {
     "rust-security-auditor": {
-      "command": "npx",
-      "args": ["-y", "rust-security-auditor@latest"]
+      "command": "/absolute/path/to/node_modules/.bin/rust-security-auditor",
+      "args": []
     }
   }
 }
 ```
 
-Claude Desktop reads `claude_desktop_config.json`; Codex, Cursor, and VS Code each have their own MCP config file, but the server block is the same. Fuller samples live in [`examples/mcp-client-config.json`](examples/mcp-client-config.json) and [`examples/codex-plugin-config.json`](examples/codex-plugin-config.json).
+Put the Cursor block in `.cursor/mcp.json` for a project or `~/.cursor/mcp.json` for a user configuration.
+
+**VS Code/Copilot — configuration reference**
+
+```json
+{
+  "servers": {
+    "rustSecurityAuditor": {
+      "command": "/absolute/path/to/node_modules/.bin/rust-security-auditor",
+      "args": []
+    }
+  }
+}
+```
+
+Put the VS Code block in `.vscode/mcp.json` or in the user `mcp.json` opened by **MCP: Open User Configuration**. Host formats and configuration locations change independently, so recheck the [Claude Code docs](https://code.claude.com/docs/en/mcp), [Claude Desktop docs](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop), [Codex MCP docs](https://learn.chatgpt.com/docs/extend/mcp), [Cursor MCP docs](https://docs.cursor.com/context/model-context-protocol), and [VS Code MCP reference](https://code.visualstudio.com/docs/agents/reference/mcp-configuration) before use.
+
+Machine-readable reference material lives in [`examples/mcp-client-config.json`](examples/mcp-client-config.json) and [`examples/codex-plugin-config.json`](examples/codex-plugin-config.json). It is configuration guidance, not a support certification.
 
 **From a local checkout**
 
@@ -167,7 +218,7 @@ pub fn read_byte(ptr: *const u8) -> u8 {
 - Expired suppressions are reported again; invalid ones are ignored and listed for cleanup.
 - The older `rustsec-auditor:` marker still works but is deprecated — it collides with the unrelated [RustSec](https://rustsec.org) project. Rename existing comments to `rust-security-auditor:`; the scanner warns when it sees the old form.
 
-Use `rust_list_accepted_risks` to inventory active, expired, and invalid suppressions without running the full scanner.
+Use `rust_list_accepted_risks` to inventory active, expired, and invalid suppressions without running the full scanner. Its JSON and Markdown output include scan coverage; treat an incomplete inventory as partial rather than as proof that no accepted risks exist.
 
 ## Report Modes
 
@@ -214,10 +265,10 @@ Source layout:
 
 The server validates that `projectPath` exists and is a local directory, scans only within it, filters git diff paths to safe relative paths, refuses git refs that could be read as flags, and runs `git` without a shell. It does not upload code, package source bundles, or contact any network service.
 
-Discovery skips `.git`, `target`, `node_modules`, and similar directories, does not follow symbolic links out of the project, and caps per-file size and total file count — reporting any limit it hits as a warning rather than scanning silently incomplete.
+Discovery skips `.git`, `target`, `node_modules`, and similar directories, does not follow symbolic links, verifies a directory again immediately after opening it, and caps per-file size, file count, directory count, total bytes, and read concurrency. Before returning source bytes, the reader verifies canonical containment, rejects symbolic-link components, checks that the pathname still resolves to the opened file, and limits the read to that descriptor's verified size. Coverage is monotonic within a tool call: optional context extraction cannot turn an incomplete changed input into complete coverage. Malformed Rust lexical input disables test-only severity reductions and marks coverage incomplete. Coverage is structured in JSON and Markdown; a current diff with an incomplete Rust/Cargo input fails closed as `needs_attention` with `safeToCommit: false`.
 
 See [SECURITY.md](SECURITY.md) for reporting a vulnerability in this tool and for what is in and out of scope.
 
 ## Status
 
-v0.1.x local-first MCP preview, released under Apache-2.0. Local, read-only Rust review — not a hosted scanner, ChatGPT App, or marketplace product. Hosted deployment and any private-code handling remain deferred to a separate product and privacy decision; see [ROADMAP.md](ROADMAP.md).
+v0.1.x local-first MCP preview. Local, read-only Rust review — not a hosted scanner, ChatGPT App, or marketplace product. Publication, tag, release, registry state, and client-support claims are **HOLD** pending owner verification; a passing local test suite does not publish a package. See [ROADMAP.md](ROADMAP.md).

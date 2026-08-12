@@ -1,5 +1,6 @@
 import type { Category, Finding, Severity } from "../reports/schemas.js";
 import type { GitDiffFile } from "../git/index.js";
+import type { ScanCoverage } from "../scanners/scannerUtils.js";
 import type { SuppressedFinding } from "../scanners/types.js";
 
 export const mcpToolNames = [
@@ -248,6 +249,7 @@ export interface McpAuditToolOutput {
   reviewGroups?: ReviewFindingGroup[];
   suppressedFindings?: SuppressedFinding[];
   suppressionSummary?: SuppressionSummary;
+  scanCoverage?: ScanCoverage;
   error?: McpAuditError;
 }
 
@@ -257,6 +259,8 @@ export interface AcceptedRiskInventoryToolOutput {
   summary: AcceptedRiskInventorySummary;
   acceptedRisks: AcceptedRisk[];
   reportMarkdown?: string | undefined;
+  warnings?: string[] | undefined;
+  scanCoverage?: ScanCoverage | undefined;
   error?: McpAuditError | undefined;
 }
 

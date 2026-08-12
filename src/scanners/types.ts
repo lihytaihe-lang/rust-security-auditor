@@ -1,9 +1,12 @@
 import type { Finding } from "../reports/schemas.js";
+import type { SafeSourceReader, ScanCoverage } from "./scannerUtils.js";
 
 export interface ScannerContext {
   workspacePath: string;
   severityThreshold?: "info" | "low" | "medium" | "high";
   includeSuppressed?: boolean;
+  /** Shared per-tool-call source capability. Internal callers should forward it. */
+  sourceReader?: SafeSourceReader;
 }
 
 export interface ScannerResult {
@@ -13,6 +16,7 @@ export interface ScannerResult {
   expiredSuppressionCount?: number;
   invalidSuppressionCount?: number;
   suppressedFindings?: SuppressedFinding[];
+  scanCoverage?: ScanCoverage;
 }
 
 export interface SuppressedFinding {

@@ -1,27 +1,44 @@
 {
   "serverName": "rust-security-auditor",
-  "installFromNpm": {
-    "mcpServers": {
-      "rust-security-auditor": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "rust-security-auditor@latest"
-        ]
-      }
-    }
-  },
-  "installFromLocalCheckout": {
-    "mcpServers": {
-      "rust-security-auditor": {
-        "command": "npm",
-        "args": [
-          "--silent",
-          "run",
-          "mcp"
-        ],
-        "cwd": "/absolute/path/to/rust-security-auditor"
-      }
+  "status": "configuration-reference-only",
+  "primaryInstalledBinary": "/absolute/path/to/node_modules/.bin/rust-security-auditor",
+  "hostConfigurationReferences": {
+    "claudeCode": {
+      "command": "claude mcp add --transport stdio rust-security-auditor -- /absolute/path/to/node_modules/.bin/rust-security-auditor",
+      "status": "configuration-reference-only"
+    },
+    "codex": {
+      "file": "~/.codex/config.toml or .codex/config.toml in a trusted project",
+      "toml": "[mcp_servers.rust_security_auditor]\ncommand = \"/absolute/path/to/node_modules/.bin/rust-security-auditor\"\ncwd = \"/absolute/path/to/rust/project\"",
+      "status": "configuration-reference-only"
+    },
+    "cursor": {
+      "file": ".cursor/mcp.json or ~/.cursor/mcp.json",
+      "contents": {
+        "mcpServers": {
+          "rust-security-auditor": {
+            "command": "/absolute/path/to/node_modules/.bin/rust-security-auditor",
+            "args": []
+          }
+        }
+      },
+      "status": "configuration-reference-only"
+    },
+    "vsCodeCopilot": {
+      "file": ".vscode/mcp.json or the user mcp.json opened by VS Code",
+      "contents": {
+        "servers": {
+          "rustSecurityAuditor": {
+            "command": "/absolute/path/to/node_modules/.bin/rust-security-auditor",
+            "args": []
+          }
+        }
+      },
+      "status": "configuration-reference-only"
+    },
+    "claudeDesktop": {
+      "status": "unverified",
+      "note": "The package does not ship the .mcpb Desktop Extension expected by the current official Claude Desktop installation flow."
     }
   },
   "tools": [
@@ -77,7 +94,7 @@
   "troubleshooting": [
     {
       "symptom": "MCP client fails while starting or parsing the first message.",
-      "check": "Use npm --silent run mcp. Plain npm run mcp may print npm lifecycle banners to stdout, which corrupts MCP stdio JSON-RPC."
+      "check": "Use the installed rust-security-auditor binary. For a checkout-only development run, use npm --silent run mcp; plain npm run mcp may print lifecycle banners to stdout, which corrupt MCP stdio JSON-RPC."
     },
     {
       "symptom": "Tool returns PROJECT_PATH_NOT_FOUND.",

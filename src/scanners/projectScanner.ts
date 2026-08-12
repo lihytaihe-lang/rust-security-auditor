@@ -8,7 +8,8 @@ import {
   isCargoTomlPath,
   isRustSourcePath,
   quotedTomlStrings,
-  readTextLines,
+  SafeSourceReader,
+  type ScanCoverage,
   toRelativeFile
 } from "./scannerUtils.js";
 
@@ -33,6 +34,9 @@ export interface RustProject {
   workspaceManifests: WorkspaceManifest[];
   /** Discovery-time limits that were hit, such as skipped symlinks or oversized files. */
   discoveryWarnings: string[];
+  /** Per-tool-call bounded source capability, intentionally not serialized into reports. */
+  sourceReader: SafeSourceReader;
+  scanCoverage: ScanCoverage;
 }
 
 export interface ProjectScannerResult extends ScannerResult {
@@ -43,7 +47,7 @@ export class ProjectScanner implements SecurityScanner<ScannerContext> {
   readonly name = "ProjectScanner";
 
   async scan(options: ScannerContext): Promise<ProjectScannerResult> {
-    const project = await discoverRustProject(options.workspacePath);
+    const project = await discoverRustProject(options.workspacePath, options.sourceReader);
     const warnings = [
       ...(project.isRustProject ? [] : [`No Cargo.toml files found under ${options.workspacePath}`]),
       ...project.discoveryWarnings
@@ -52,13 +56,15 @@ export class ProjectScanner implements SecurityScanner<ScannerContext> {
     return {
       project,
       findings: [],
-      warnings
+      warnings,
+      scanCoverage: project.sourceReader.coverage()
     };
   }
 }
 
-export async function discoverRustProject(workspacePath: string): Promise<RustProject> {
-  const { files, warnings } = await collectWorkspaceFiles(workspacePath);
+export async function discoverRustProject(workspacePath: string, existingReader?: SafeSourceReader): Promise<RustProject> {
+  const sourceReader = existingReader ?? new SafeSourceReader(workspacePath);
+  const { files, warnings } = await collectWorkspaceFiles(workspacePath, {}, sourceReader);
   const cargoTomlFiles: ProjectFile[] = [];
   const cargoLockFiles: ProjectFile[] = [];
   const cargoConfigFiles: ProjectFile[] = [];
@@ -70,11 +76,13 @@ export async function discoverRustProject(workspacePath: string): Promise<RustPr
     const file = toRelativeFile(workspacePath, absolutePath);
 
     if (isCargoTomlPath(absolutePath)) {
-      const lines = await readTextLines(absolutePath);
-      const workspace = workspaceManifest(file, absolutePath, lines);
+      const lines = await sourceReader.readTextLines(absolutePath, file, "cargo_toml", "discovery");
       cargoTomlFiles.push({ file, absolutePath, line: 1 });
-      if (workspace !== undefined) {
-        workspaceManifests.push(workspace);
+      if (lines !== undefined) {
+        const workspace = workspaceManifest(file, absolutePath, lines);
+        if (workspace !== undefined) {
+          workspaceManifests.push(workspace);
+        }
       }
       continue;
     }
@@ -90,8 +98,8 @@ export async function discoverRustProject(workspacePath: string): Promise<RustPr
     }
 
     if (isBuildScriptPath(absolutePath)) {
-      const lines = await readTextLines(absolutePath);
-      buildScripts.push({ file, absolutePath, line: firstMeaningfulLine(lines) });
+      const lines = await sourceReader.readTextLines(absolutePath, file, "build_script", "discovery");
+      buildScripts.push({ file, absolutePath, line: firstMeaningfulLine(lines ?? []) });
     }
 
     if (isRustSourcePath(absolutePath)) {
@@ -108,7 +116,9 @@ export async function discoverRustProject(workspacePath: string): Promise<RustPr
     buildScripts,
     rustSourceFiles,
     workspaceManifests,
-    discoveryWarnings: warnings
+    discoveryWarnings: warnings,
+    sourceReader,
+    scanCoverage: sourceReader.coverage()
   };
 }
 

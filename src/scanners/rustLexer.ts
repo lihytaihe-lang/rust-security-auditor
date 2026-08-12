@@ -16,6 +16,12 @@ export interface MaskedRustSource {
   withoutComments: string[];
   /** Comment bodies, string literals, and char literals all replaced by spaces. */
   withoutLiterals: string[];
+  /** Only lexically confirmed Rust comments; code and literals are masked. */
+  commentsOnly: string[];
+  /** False when a literal or block comment was not closed before EOF. */
+  isComplete: boolean;
+  /** Stable explanation for conservative callers and scan coverage. */
+  limitation?: "unterminated_block_comment" | "unterminated_literal";
 }
 
 type LexerState =
@@ -24,22 +30,37 @@ type LexerState =
   | { kind: "string" }
   | { kind: "rawString"; hashes: number };
 
+let maskInvocations = 0;
+
+/**
+ * Observable only for deterministic regression tests of lexing work. Lexing
+ * must stay proportional to the number of files scanned; a caller that lexes
+ * once per finding makes a scan quadratic in the size of a single file.
+ */
+export function maskRustSourceInvocations(): number {
+  return maskInvocations;
+}
+
 /**
  * Masks comments and literals while preserving line count and column offsets.
  */
 export function maskRustSource(lines: readonly string[]): MaskedRustSource {
+  maskInvocations += 1;
   const withoutComments: string[] = [];
   const withoutLiterals: string[] = [];
+  const commentsOnly: string[] = [];
   let state: LexerState = { kind: "code" };
 
   for (const line of lines) {
     let codeOnly = "";
     let literalsToo = "";
+    let comments = "";
     let index = 0;
 
     const emit = (text: string, maskComment: boolean, maskLiteral: boolean) => {
       codeOnly += maskComment ? " ".repeat(text.length) : text;
       literalsToo += maskComment || maskLiteral ? " ".repeat(text.length) : text;
+      comments += maskComment ? text : " ".repeat(text.length);
     };
 
     while (index < line.length) {
@@ -133,17 +154,35 @@ export function maskRustSource(lines: readonly string[]): MaskedRustSource {
       index += 1;
     }
 
-    // A plain string literal never spans lines; only raw strings and block
-    // comments carry state across a newline.
-    if (state.kind === "string") {
-      state = { kind: "code" };
-    }
-
     withoutComments.push(codeOnly);
     withoutLiterals.push(literalsToo);
+    commentsOnly.push(comments);
   }
 
-  return { withoutComments, withoutLiterals };
+  if (state.kind === "code") {
+    return { withoutComments, withoutLiterals, commentsOnly, isComplete: true };
+  }
+
+  // We cannot prove where malformed source resumes code. Preserve comment
+  // masking, but scan literal text conservatively instead of silently hiding a
+  // potentially real token after an unterminated literal.
+  if (state.kind !== "blockComment") {
+    return {
+      withoutComments,
+      withoutLiterals: [...withoutComments],
+      commentsOnly,
+      isComplete: false,
+      limitation: "unterminated_literal"
+    };
+  }
+
+  return {
+    withoutComments,
+    withoutLiterals,
+    commentsOnly,
+    isComplete: false,
+    limitation: "unterminated_block_comment"
+  };
 }
 
 /**
@@ -151,7 +190,9 @@ export function maskRustSource(lines: readonly string[]): MaskedRustSource {
  * items, so test-only risk can be reported at a lower severity than production
  * code.
  */
-export function findTestCodeLines(maskedLines: readonly string[]): Set<number> {
+export function findTestCodeLines(maskedLines: readonly string[], lexicalAnalysisComplete = true): Set<number> {
+  if (!lexicalAnalysisComplete) return new Set();
+
   const testLines = new Set<number>();
   let depth = 0;
   let pendingAttribute = false;
@@ -201,12 +242,49 @@ export function isImportLine(line: string): boolean {
 }
 
 function isTestAttribute(line: string): boolean {
-  if (/#\s*\[\s*(?:[\w:]+::)?test\s*\]/.test(line)) return true;
+  // Only Rust's exact built-in #[test] attribute proves an item is test-only.
+  // A path ending in ::test can be any custom attribute macro and may compile
+  // in production builds, so it must not lower a finding's severity.
+  if (/#\s*\[\s*test\s*\]/.test(line)) return true;
 
-  const cfg = /#\s*\[\s*cfg(?:_attr)?\s*\((.*)\)\s*\]/.exec(line);
+  const cfg = /#\s*\[\s*cfg\s*\((.*)\)\s*\]/.exec(line);
   if (cfg?.[1] === undefined) return false;
 
-  return /(?:^|[(,\s])test(?:[),\s]|$)/.test(cfg[1]);
+  return definitelyRequiresTest(cfg[1]);
+}
+
+/**
+ * A test-only downgrade is a proof obligation. `any(test, feature = ...)`,
+ * `cfg_attr`, negation, and unknown cfg syntax may all compile production code
+ * and must therefore remain production severity.
+ */
+function definitelyRequiresTest(condition: string): boolean {
+  const trimmed = condition.trim();
+  if (trimmed === "test") return true;
+
+  const all = /^all\((.*)\)$/.exec(trimmed);
+  if (all?.[1] === undefined) return false;
+
+  return splitTopLevelArguments(all[1]).some((argument) => argument.trim() === "test");
+}
+
+function splitTopLevelArguments(value: string): string[] {
+  const arguments_: string[] = [];
+  let depth = 0;
+  let start = 0;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (char === "(") depth += 1;
+    if (char === ")") depth = Math.max(0, depth - 1);
+    if (char === "," && depth === 0) {
+      arguments_.push(value.slice(start, index));
+      start = index + 1;
+    }
+  }
+
+  arguments_.push(value.slice(start));
+  return arguments_;
 }
 
 function closesRawString(line: string, position: number, hashes: number): boolean {

@@ -103,6 +103,16 @@ export function parseUnifiedDiff(input: string): ParsedGitDiff {
   };
 }
 
+/**
+ * Git always separates path components with `/`, so a backslash that survives
+ * `unquoteGitPath` is part of a file *name*, not a separator.
+ *
+ * Rewriting it to `/` aliases one file onto another: on POSIX a repository can
+ * hold both `src/alias.rs` and a file literally named `src\alias.rs`, and the
+ * rewrite made a change to the second one look like a change to the first. The
+ * scanner then reported the harmless sibling's findings — none — and returned
+ * `pass` with `safeToCommit: true` for a diff that introduced a real one.
+ */
 export function normalizeGitDiffPath(rawPath: string): string | undefined {
   let path = stripHeaderMetadata(rawPath.trim());
 
@@ -116,7 +126,7 @@ export function normalizeGitDiffPath(rawPath: string): string | undefined {
     path = path.slice(2);
   }
 
-  const normalized = posix.normalize(path.replaceAll("\\", "/"));
+  const normalized = posix.normalize(path);
 
   if (
     normalized === "." ||
@@ -129,6 +139,19 @@ export function normalizeGitDiffPath(rawPath: string): string | undefined {
   }
 
   return normalized;
+}
+
+/**
+ * True when the current platform can address a Git path without reinterpreting
+ * any of its characters.
+ *
+ * Windows treats a backslash as a separator, so a Git path containing one
+ * cannot be checked out there and must never be resolved against the working
+ * tree: doing so would silently address a different file. Callers must fail
+ * closed rather than review whatever that path happens to hit.
+ */
+export function isPlatformAddressableGitPath(path: string, platform: NodeJS.Platform = process.platform): boolean {
+  return platform === "win32" ? !path.includes("\\") : true;
 }
 
 function createFileFromDiffHeader(line: string): MutableGitDiffFile {

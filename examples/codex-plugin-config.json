@@ -1,6 +1,6 @@
 {
-  "name": "rust-security-auditor-codex",
-  "description": "Example Codex Skill / MCP configuration for using the local Rust Security Auditor from a Codex project context.",
+  "name": "rust-security-auditor-codex-reference",
+  "description": "Configuration-reference metadata for using the local Rust Security Auditor from a Codex project context; it is not a Codex plugin manifest or host-support certification.",
   "skill": {
     "displayName": "Rust Security Auditor",
     "path": "skills/rust-security-auditor/SKILL.md",
@@ -18,14 +18,10 @@
       "@Rust Security Auditor review accepted risk inventory before release"
     ]
   },
-  "mcpServers": {
-    "rust-security-auditor": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "rust-security-auditor@latest"
-      ]
-    }
+  "codexMcpConfigurationReference": {
+    "file": "~/.codex/config.toml or .codex/config.toml in a trusted project",
+    "toml": "[mcp_servers.rust_security_auditor]\ncommand = \"/absolute/path/to/node_modules/.bin/rust-security-auditor\"\ncwd = \"/absolute/path/to/rust/project\"",
+    "status": "configuration-reference-only"
   },
   "tools": [
     {
@@ -96,7 +92,7 @@
     }
   ],
   "stdioNotes": [
-    "Use npm --silent run mcp. Plain npm run mcp can print npm lifecycle banners to stdout.",
+    "Use the installed rust-security-auditor binary. For a checkout-only development run, use npm --silent run mcp; plain npm run mcp can print lifecycle banners to stdout.",
     "MCP stdio stdout must contain only JSON-RPC protocol frames. Ordinary logs must not pollute stdout.",
     "The server scans local project paths passed by Codex. It does not require uploading code packages."
   ],
@@ -106,16 +102,13 @@
     "This is not a web UI."
   ],
   "localCheckoutAlternative": {
-    "mcpServers": {
-      "rust-security-auditor": {
-        "command": "npm",
-        "args": [
-          "--silent",
-          "run",
-          "mcp"
-        ],
-        "cwd": "/absolute/path/to/rust-security-auditor"
-      }
-    }
+    "command": "npm",
+    "args": [
+      "--silent",
+      "run",
+      "mcp"
+    ],
+    "cwd": "/absolute/path/to/rust-security-auditor",
+    "note": "Checkout-only development reference; use only through an actual Codex MCP configuration after host-specific verification."
   }
 }

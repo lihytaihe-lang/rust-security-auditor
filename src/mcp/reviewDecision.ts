@@ -1,4 +1,5 @@
 import type { Confidence, Finding, Severity } from "../reports/index.js";
+import type { ScanCoverageEntry } from "../scanners/scannerUtils.js";
 import type {
   DiffAwareFinding,
   DiffReviewSummaryMetrics,
@@ -11,6 +12,7 @@ import type {
 export interface DiffReviewPolicyOptions {
   includePreExisting?: boolean | undefined;
   reportMode?: "compact" | "full" | undefined;
+  incompleteCoverage?: readonly ScanCoverageEntry[] | undefined;
 }
 
 export function shouldDisplayDiffFinding(
@@ -90,11 +92,22 @@ export function inferReviewDecision(
     )
     .map((item) => item.finding.id);
 
+  const incompleteCoverage = options.incompleteCoverage ?? [];
+  // Incomplete coverage can only make a verdict stricter, never softer. Ranking
+  // it above the blocking check downgraded `block` to `needs_attention` exactly
+  // when the scan was least trustworthy, so the coverage reason is appended to
+  // whatever verdict the findings already justify.
+  const coverageNote =
+    incompleteCoverage.length === 0
+      ? ""
+      : ` Required current-diff inputs were also not fully scanned: ${incompleteCoverage
+          .map((entry) => `${entry.file} (${entry.reason ?? "incomplete"})`)
+          .join(", ")}.`;
+
   if (blockingFindingIds.length > 0) {
     return {
       status: "block",
-      reason:
-        "The reviewed diff introduced high or critical security review signals with medium/high pattern-detection confidence.",
+      reason: `The reviewed diff introduced high or critical security review signals with medium/high pattern-detection confidence.${coverageNote}`,
       blockingFindingIds,
       needsManualReviewFindingIds,
       safeToCommit: false
@@ -104,8 +117,19 @@ export function inferReviewDecision(
   if (needsManualReviewFindingIds.length > 0) {
     return {
       status: "needs_attention",
-      reason:
-        "No hard blockers were found, but introduced findings or directly related same-function/same-unsafe-site context need human review before commit.",
+      reason: `No hard blockers were found, but introduced findings or directly related same-function/same-unsafe-site context need human review before commit.${coverageNote}`,
+      blockingFindingIds,
+      needsManualReviewFindingIds,
+      safeToCommit: false
+    };
+  }
+
+  if (incompleteCoverage.length > 0) {
+    return {
+      status: "needs_attention",
+      reason: `Required current-diff inputs were not fully scanned: ${incompleteCoverage
+        .map((entry) => `${entry.file} (${entry.reason ?? "incomplete"})`)
+        .join(", ")}.`,
       blockingFindingIds,
       needsManualReviewFindingIds,
       safeToCommit: false

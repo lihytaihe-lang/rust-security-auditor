@@ -11,6 +11,7 @@
 import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { sanitizeArtifactValue } from "../dist/src/release/artifactPrivacy.js";
 
 const repoRoot = resolve(".");
 const serverPath = join(repoRoot, "dist/src/mcp/server.js");
@@ -56,7 +57,7 @@ const MARKDOWN_SAMPLES = [
 ];
 
 function sanitize(value) {
-  return JSON.parse(JSON.stringify(value).split(repoRoot).join("<repo>"));
+  return sanitizeArtifactValue(value, [repoRoot]);
 }
 
 class McpClient {

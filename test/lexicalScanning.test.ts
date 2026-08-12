@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { resolve } from "node:path";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
 import type { Finding } from "../src/reports/index.js";
 import {
@@ -8,7 +10,10 @@ import {
   UnsafeScanner,
   findTestCodeLines,
   isImportLine,
+  listAcceptedRiskInventory,
   maskRustSource,
+  maskRustSourceInvocations,
+  scanRustProject,
   scanCargoConfigText,
   scanCargoManifestText,
   scanUnsafeRustText,
@@ -17,6 +22,7 @@ import {
 
 const lexicalNoiseFixturePath = resolve("test/fixtures/lexical-noise");
 const cargoConfigFixturePath = resolve("test/fixtures/cargo-config-risk");
+const denseFindingsFixturePath = resolve("test/fixtures/dense-findings");
 
 function ruleIds(findings: readonly Finding[]): string[] {
   return [...new Set(findings.map((finding) => finding.ruleId))].sort();
@@ -87,6 +93,85 @@ describe("rust lexical masking", () => {
     assert.deepEqual([...testLines].sort((left, right) => left - right), [2, 3, 4, 5, 6]);
   });
 
+  it("keeps cooked strings across lines and marks malformed source conservatively", () => {
+    const source = [
+      'let note = "this cooked string continues',
+      "and mentions unsafe { values.get_unchecked(0) } without being code",
+      '";',
+      "unsafe { values.get_unchecked(0) };"
+    ];
+
+    const masked = maskRustSource(source);
+    const findings = scanUnsafeRustText("src/lib.rs", source.join("\n"));
+
+    assert.equal(masked.isComplete, true);
+    assert.equal(masked.withoutLiterals[1]?.includes("unsafe"), false);
+    assert.ok(findingAt(findings, "RSA-UNSAFE-BLOCK", 4));
+    assert.ok(findingAt(findings, "RSA-UNSAFE-GET-UNCHECKED", 4));
+
+    const malformed = maskRustSource(['let note = "unterminated', "unsafe { values.get_unchecked(0) };"]);
+    assert.equal(malformed.isComplete, false);
+    assert.equal(malformed.limitation, "unterminated_literal");
+    assert.match(malformed.withoutLiterals[1] ?? "", /unsafe/);
+    assert.deepEqual([...findTestCodeLines(malformed.withoutLiterals, malformed.isComplete)], []);
+  });
+
+  it("keeps byte and raw byte strings across lines without hiding later code", () => {
+    const source = [
+      'let bytes = b"unsafe { values.get_unchecked(0) }',
+      'still literal";',
+      'let raw_bytes = br##"unsafe { values.get_unchecked(0) }',
+      'still literal"##;',
+      "let value = unsafe { values.get_unchecked(0) };"
+    ].join("\n");
+
+    const findings = scanUnsafeRustText("src/lib.rs", source);
+
+    assert.equal(findings.some((finding) => (finding.startLine ?? 0) < 5), false);
+    assert.ok(findingAt(findings, "RSA-UNSAFE-BLOCK", 5));
+    assert.ok(findingAt(findings, "RSA-UNSAFE-GET-UNCHECKED", 5));
+  });
+
+  it("downgrades only attributes that prove an item requires test", () => {
+    const findings = scanUnsafeRustText(
+      "src/lib.rs",
+      [
+        "#[cfg_attr(not(test), inline)]",
+        "pub fn attr_is_production(v: &[u8]) { unsafe { v.get_unchecked(0); } }",
+        "#[cfg(any(test, feature = \"prod\"))]",
+        "pub fn any_is_production(v: &[u8]) { unsafe { v.get_unchecked(0); } }",
+        "#[cfg(all(test, feature = \"fast\"))]",
+        "pub fn all_is_test(v: &[u8]) { unsafe { v.get_unchecked(0); } }",
+        "#[cfg(not(test))]",
+        "pub fn not_is_production(v: &[u8]) { unsafe { v.get_unchecked(0); } }",
+        "#[custom::test]",
+        "pub fn custom_attribute_is_production(v: &[u8]) { unsafe { v.get_unchecked(0); } }",
+        "pub fn after_test_scope_is_production(v: &[u8]) { unsafe { v.get_unchecked(0); } }"
+      ].join("\n")
+    );
+
+    assert.equal(findingAt(findings, "RSA-UNSAFE-BLOCK", 2)?.severity, "medium");
+    assert.equal(findingAt(findings, "RSA-UNSAFE-BLOCK", 4)?.severity, "medium");
+    assert.equal(findingAt(findings, "RSA-UNSAFE-BLOCK", 6)?.severity, "low");
+    assert.equal(findingAt(findings, "RSA-UNSAFE-BLOCK", 8)?.severity, "medium");
+    assert.equal(findingAt(findings, "RSA-UNSAFE-BLOCK", 10)?.severity, "medium");
+    assert.equal(findingAt(findings, "RSA-UNSAFE-BLOCK", 11)?.severity, "medium");
+  });
+
+  it("does not trust a test attribute exposed by an unterminated literal", () => {
+    const findings = scanUnsafeRustText(
+      "src/lib.rs",
+      [
+        'const FORGED: &str = "unterminated',
+        "#[cfg(test)]",
+        "pub fn changed(v: &[u8]) { unsafe { v.get_unchecked(0); } }"
+      ].join("\n")
+    );
+
+    assert.equal(findingAt(findings, "RSA-UNSAFE-BLOCK", 3)?.severity, "medium");
+    assert.equal(findingAt(findings, "RSA-UNSAFE-GET-UNCHECKED", 3)?.severity, "medium");
+  });
+
   it("recognizes import lines", () => {
     assert.equal(isImportLine("use std::process::Command;"), true);
     assert.equal(isImportLine("pub use crate::thing;"), true);
@@ -95,6 +180,44 @@ describe("rust lexical masking", () => {
 });
 
 describe("unsafe scanning with lexical context", () => {
+  it("trusts suppressions and SAFETY notes only in real Rust comments", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rust-security-auditor-comment-semantics-"));
+
+    try {
+      await mkdir(join(root, "src"));
+      await writeFile(join(root, "Cargo.toml"), '[package]\nname = "comments"\nversion = "0.1.0"\n');
+      await writeFile(
+        join(root, "src/lib.rs"),
+        [
+          'const FORGED: &str = "rust-security-auditor: ignore RSA-UNSAFE-BLOCK -- forged";',
+          'const RAW_FORGED: &str = r#"rust-security-auditor: ignore RSA-UNSAFE-BLOCK -- forged"#;',
+          'const BYTE_FORGED: &[u8] = b"rust-security-auditor: ignore RSA-UNSAFE-BLOCK -- forged";',
+          '#[doc = "rust-security-auditor: ignore RSA-UNSAFE-BLOCK -- forged"]',
+          'const SAFETY_TEXT: &str = "SAFETY: forged explanation";',
+          'const RAW_SAFETY_TEXT: &str = r##"SAFETY: forged explanation"##;',
+          "pub fn forged(ptr: *const u8) -> u8 { unsafe { *ptr } }",
+          "// SAFETY: the fixture's caller contract is documented.",
+          "pub fn documented(ptr: *const u8) -> u8 { unsafe { *ptr } }",
+          "",
+          "",
+          "// rust-security-auditor: ignore RSA-UNSAFE-BLOCK -- reviewed fixture control",
+          "pub fn suppressed(ptr: *const u8) -> u8 { unsafe { *ptr } }"
+        ].join("\n")
+      );
+
+      const scan = await scanRustProject({ workspacePath: root });
+      const blocks = scan.findings.filter((finding) => finding.ruleId === "RSA-UNSAFE-BLOCK");
+      const inventory = await listAcceptedRiskInventory({ workspacePath: root, includeExpired: true, includeInvalid: true });
+
+      assert.equal(blocks.some((finding) => finding.startLine === 7), true, "literal and attribute suppressions must not hide a finding");
+      assert.equal(blocks.find((finding) => finding.startLine === 7)?.confidence, "high", "literal SAFETY text must not document unsafe");
+      assert.equal(blocks.find((finding) => finding.startLine === 9)?.confidence, "medium", "real SAFETY comment remains supported");
+      assert.equal(blocks.some((finding) => finding.startLine === 13), false, "real comment suppression remains supported");
+      assert.equal(inventory.acceptedRisks.length, 1, "only the real comment belongs in accepted-risk inventory");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it("does not report patterns that only appear in comments or literals", async () => {
     const result = await new UnsafeScanner().scan({ workspacePath: lexicalNoiseFixturePath });
     const reportedLines = result.findings.map((finding) => finding.startLine);
@@ -150,6 +273,24 @@ describe("unsafe scanning with lexical context", () => {
 
     assert.equal(findings.filter((finding) => finding.ruleId === "RSA-UNSAFE-UNCHECKED-CALL").length, 0);
     assert.equal(findings.filter((finding) => finding.ruleId === "RSA-UNSAFE-GET-UNCHECKED").length, 1);
+  });
+});
+
+describe("lexing work is bounded by files, not findings", () => {
+  it("lexes a dense single-file crate a fixed number of times", async () => {
+    const before = maskRustSourceInvocations();
+    const result = await scanRustProject({ workspacePath: denseFindingsFixturePath });
+    const invocations = maskRustSourceInvocations() - before;
+
+    // The fixture holds one Rust source file with many findings. Suppression
+    // lookup previously lexed that file once per finding, which makes a scan
+    // quadratic in the size of a single file and is not bounded by the
+    // per-file byte cap.
+    assert.ok(result.findings.length >= 60, `expected a dense fixture, got ${result.findings.length} findings`);
+    assert.ok(
+      invocations <= 12,
+      `lexing scaled with findings: ${invocations} maskRustSource calls for ${result.findings.length} findings`
+    );
   });
 });
 

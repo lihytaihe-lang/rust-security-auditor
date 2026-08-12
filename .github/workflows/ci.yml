@@ -52,6 +52,9 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Verify real package install and stdio boundary
+        run: npm run verify:package
+
   hygiene:
     name: Whitespace and dependency audit
     runs-on: ubuntu-latest
@@ -75,5 +78,5 @@ jobs:
       - name: Audit dependencies
         run: npm audit --audit-level=high
 
-      - name: Verify the published package contents
-        run: npm pack --dry-run
+      - name: Verify real package contents and installed stdio boundary
+        run: npm run verify:package
