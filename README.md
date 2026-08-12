@@ -1,107 +1,148 @@
 # Rust Security Auditor
 
-Rust Security Auditor is a local MCP server for focused Rust security review. It runs on your machine, reads local Cargo projects, and exposes security review tools to Codex or any MCP client over stdio.
+A local-first Rust security review MCP server over stdio. It reviews Rust code for unsafe, FFI, and supply-chain risk — and tells your coding agent what to look at before you commit.
 
-It is designed for first public preview use: quick local installation, clear MCP configuration, deterministic example reports, and a small set of maintainable heuristic checks for Rust security review.
+It runs entirely on your machine, reads local Cargo projects, never modifies the target source tree, and exposes five read-only tools over stdio. It is client-neutral at the protocol layer; that is not a claim that every MCP host has been end-to-end validated.
 
-## Current Status
+Ask your agent to review what you just wrote, and you get back the part of the diff that carries risk — actual output, abridged:
 
-Current true version: v0.1.1 local-first MCP preview.
+```markdown
+# Rust Security Review: Current Diff
 
-Public-release decision as of 2026-08-11: publish this v0.1.1 local MCP preview as open source. The release is intentionally limited to local, read-only Rust review; it is not a hosted scanner, Codex plugin, ChatGPT App, or marketplace product.
+## Decision
 
-Completed scope includes the local stdio MCP server, five read-only tools, the TypeScript scanner kernel, Markdown and JSON reports, changed-line-aware diff review, a fixture-safe Hosted MCP prototype, and Stage 2.3 repository-side hosted validation. Stage 2.4 is blocked until a ChatGPT account, organization, or session exposes the Developer Mode connector creation entry; no ChatGPT connector has been created successfully yet.
+NEEDS ATTENTION
 
-Do not represent this preview as a hosted service or private-repository scanner. Codex plugin packaging, ChatGPT App validation, hosted deployment, and any private-code handling remain deferred until a separate product, privacy, and maintenance decision.
+- Safe to commit: No
+- Reason: No hard blockers were found, but introduced findings or directly
+  related same-function/same-unsafe-site context need human review before commit.
+- Blocking findings: 0
+- Manual review findings: 2
 
-## What It Is
+## Introduced by this diff
 
-- A local TypeScript scanner kernel plus stdio MCP server.
-- A Codex/MCP client companion for reviewing local Rust projects.
-- A heuristic static review layer for unsafe/FFI, Cargo dependency and supply-chain clues, build scripts, command execution, accepted-risk suppressions, and changed-line-aware current diff review.
-- A read-only tool. It reports findings and suggested next prompts, but it does not modify code unless a separate human-directed agent action does so.
+### Unsafe site at src/buffer.rs:11
 
-## What It Is Not
-
-- Not a SaaS product.
-- Not an uploaded code package scanner.
-- Not a ChatGPT App.
-- Not a generic code review or style review tool.
-- Not full AST, data-flow, control-flow, or taint analysis.
-- Not formal verification, symbolic execution, or a replacement for human security review.
-
-## Core MCP Tools
-
-| Tool | Use It For |
-| --- | --- |
-| `rust_review_current_diff` | Review findings introduced by or near the current Git diff before commit or PR. |
-| `rust_audit_unsafe` | Review unsafe blocks, unsafe functions, FFI, raw-memory primitives, and unsafe Send/Sync impls. |
-| `rust_audit_dependencies` | Review Cargo manifests, lockfiles, build scripts, git/path dependencies, proc macros, and build dependencies. |
-| `rust_audit_project` | Run the broad local project scan across the current preview rule set. |
-| `rust_list_accepted_risks` | Inventory `rustsec-auditor` accepted-risk suppression comments without running the full scanner. |
-
-## Best Fit
-
-- Before commit: run `rust_review_current_diff`.
-- Before PR: run `rust_review_current_diff` against staged changes or an explicit base/head ref.
-- After Codex-generated code: run `rust_review_current_diff` to catch newly introduced unsafe, dependency, or build-script risk clues.
-- Before release accepted-risk review: run `rust_list_accepted_risks`, then use `rust_audit_project` when you want the broader local project scan.
-
-## Quickstart
-
-Prerequisites:
-
-- Node.js 20 or newer.
-- A local checkout of this repository.
-- A local Rust Cargo project when you want to scan real code.
-
-Install and verify the preview:
-
-```bash
-npm install
-npm run typecheck
-npm test
+- Location: `src/buffer.rs:11`
+- Function/context: `read_fast`
+- Diff relation: introduced_by_diff
+- Findings:
+  - Generic unsafe block (RSA-UNSAFE-BLOCK, medium severity/high pattern-detection confidence)
+  - get_unchecked skips bounds checking (RSA-UNSAFE-GET-UNCHECKED, medium severity/high pattern-detection confidence)
 ```
 
-For a clean CI-style install from `package-lock.json`, use `npm ci` instead of `npm install`:
+Pre-existing unsafe code elsewhere in the file is classified separately and does not look like a new blocker.
+
+## Install
+
+Requires Node.js 20 or newer. No Rust toolchain needed — the scanner reads source and manifests, it does not build your project.
+
+### Primary path: local checkout
+
+Clone, install dependencies, and build once:
 
 ```bash
+git clone https://github.com/lihytaihe-lang/rust-security-auditor.git
+cd rust-security-auditor
 npm ci
-npm run typecheck
-npm test
+npm run build
 ```
 
-Start the local MCP server:
+Point the MCP client directly at that checkout's built server. Its standard input and output are reserved for JSON-RPC; logs go to stderr.
+
+```json
+{
+  "command": "node",
+  "args": ["/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"]
+}
+```
+
+Pass the Rust project as the tool's absolute `projectPath`; the server process does not need to run from that project directory.
+
+### Client compatibility and configuration references
+
+The status words in this table are deliberately narrow. “End-to-end verified” means the listed host, host version, operating system, and the MCP `initialize`, `tools/list`, and `tools/call` exchange have an execution record. It is not inferred from protocol compatibility or another host's behavior.
+
+| Host or boundary | Status | Evidence or configuration reference |
+| --- | --- | --- |
+| Checkout stdio boundary | End-to-end verified | The built checkout server completes `initialize`, `notifications/initialized`, `tools/list`, and `rust_audit_project` over stdio. This does not validate an MCP host UI. |
+| Package publication boundary | Release-path regression guard | `npm run verify:package` creates a local tarball, installs it fresh, launches `node_modules/.bin`, and completes the MCP handshake. It does not publish a package or make npm the primary install route. |
+| Claude Code | Configuration reference from official docs only | Use the Claude Code command below; no Claude Code host run is recorded. |
+| Claude Desktop | Unverified | The current official flow is a Desktop Extension. This package does not ship an `.mcpb` extension, so it provides no Desktop-specific binary configuration or support claim. |
+| Codex CLI, app, and IDE extension | Configuration reference from official docs only | These Codex clients share MCP configuration; the TOML reference below has not been run in any Codex host. |
+| Cursor | Configuration reference from official docs only | Use the Cursor `mcp.json` shape below; no Cursor host run is recorded. |
+| VS Code/Copilot | Configuration reference from official docs only | Use the VS Code `mcp.json` shape below; no VS Code/Copilot host run is recorded. |
+
+**Claude Code — configuration reference**
 
 ```bash
-npm --silent run mcp
+claude mcp add --transport stdio rust-security-auditor -- node /absolute/path/to/rust-security-auditor/dist/src/mcp/server.js
 ```
 
-Use `--silent` for MCP stdio. MCP reserves stdout for JSON-RPC protocol frames, and normal npm lifecycle banners can break client initialization.
+**Codex CLI, app, and IDE extension — configuration reference**
 
-## MCP Client Config
+```toml
+# ~/.codex/config.toml or a trusted project's .codex/config.toml
+[mcp_servers.rust_security_auditor]
+command = "node"
+args = ["/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"]
+```
 
-Configure Codex or another MCP client to launch this repository as a stdio server:
+The equivalent Codex CLI command is:
+
+```bash
+codex mcp add rust-security-auditor -- node /absolute/path/to/rust-security-auditor/dist/src/mcp/server.js
+```
+
+**Cursor — configuration reference**
 
 ```json
 {
   "mcpServers": {
     "rust-security-auditor": {
-      "command": "npm",
-      "args": ["--silent", "run", "mcp"],
-      "cwd": "/absolute/path/to/rust-security-auditor"
+      "command": "node",
+      "args": ["/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"]
     }
   }
 }
 ```
 
-Use an absolute `cwd` for this repository. A fuller sample lives at `examples/mcp-client-config.json`, and a Codex-oriented sample lives at `examples/codex-plugin-config.json`.
+Put the Cursor block in `.cursor/mcp.json` for a project or `~/.cursor/mcp.json` for a user configuration.
 
-## Calling Tools
+**VS Code/Copilot — configuration reference**
 
-The MCP client sends tool calls with local project paths. Example arguments:
+```json
+{
+  "servers": {
+    "rustSecurityAuditor": {
+      "command": "node",
+      "args": ["/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"]
+    }
+  }
+}
+```
 
-`rust_review_current_diff`
+Put the VS Code block in `.vscode/mcp.json` or in the user `mcp.json` opened by **MCP: Open User Configuration**. Host formats and configuration locations change independently, so recheck the [Claude Code docs](https://code.claude.com/docs/en/mcp), [Claude Desktop docs](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop), [Codex MCP docs](https://learn.chatgpt.com/docs/extend/mcp), [Cursor MCP docs](https://docs.cursor.com/context/model-context-protocol), and [VS Code MCP reference](https://code.visualstudio.com/docs/agents/reference/mcp-configuration) before use.
+
+Machine-readable reference material lives in [`examples/mcp-client-config.json`](examples/mcp-client-config.json) and [`examples/codex-plugin-config.json`](examples/codex-plugin-config.json). It is configuration guidance, not a support certification.
+
+### Optional published-package path
+
+No version is published to npm today. After an owner-approved npm release, `npx --yes rust-security-auditor` or a global npm install may be used as an optional convenience path. The package metadata, binary entry points, `prepack`, and `npm run verify:package` remain in the repository specifically to protect that future release path; they are not the primary local-checkout instructions.
+
+For checkout debugging without a client, `npm --silent run mcp` remains available; it rebuilds before launch and is not the configured client command above.
+
+## The Five Tools
+
+| Tool | Use it for |
+| --- | --- |
+| `rust_review_current_diff` | What did this change introduce? Run before commit or PR, and after agent-generated code. |
+| `rust_audit_unsafe` | Unsafe blocks and functions, FFI boundaries, raw-memory primitives, unsafe Send/Sync. |
+| `rust_audit_dependencies` | Cargo manifests, lockfiles, build scripts, git/path deps, proc macros, `.cargo/config.toml`. |
+| `rust_audit_project` | The broad local scan across every rule. |
+| `rust_list_accepted_risks` | Inventory of accepted-risk suppression comments, including expired and invalid ones. |
+
+Ask for them in plain language — `review current diff before I commit`, `audit unsafe`, `check dependencies`, `list accepted risks` — or call them directly:
 
 ```json
 {
@@ -117,249 +158,145 @@ The MCP client sends tool calls with local project paths. Example arguments:
 }
 ```
 
-`rust_audit_unsafe`
+Every tool takes `projectPath`, `outputFormat` (`markdown` | `json`), `pathMode` (`relative` | `absolute`), and `reportMode` (`compact` | `full`). Defaults are `relative` and `compact`, which keeps local absolute paths out of anything you paste into a PR.
 
-```json
-{
-  "projectPath": "/absolute/path/to/rust/project",
-  "includeDocumentedUnsafe": true,
-  "outputFormat": "markdown",
-  "pathMode": "relative",
-  "reportMode": "compact"
-}
+Sanitized example outputs for each tool live in [`examples/reports/`](examples/reports).
+
+## What It Catches
+
+**Unsafe and FFI** — `RSA-UNSAFE-BLOCK`, `RSA-UNSAFE-FN`, `RSA-UNSAFE-IMPL-SEND`, `RSA-UNSAFE-IMPL-SYNC`, `RSA-FFI-EXTERN-C`, `RSA-FFI-CSTR-FROM-PTR`, `RSA-UNSAFE-TRANSMUTE`, `RSA-UNSAFE-MAYBEUNINIT`, `RSA-UNSAFE-FROM-RAW-PARTS`, `RSA-UNSAFE-SET-LEN`, `RSA-UNSAFE-BOX-FROM-RAW`, `RSA-UNSAFE-GET-UNCHECKED`, `RSA-UNSAFE-UNCHECKED-CALL`, `RSA-UNSAFE-STATIC-MUT`, `RSA-UNSAFE-RAW-PTR-ACCESS`
+
+**Supply chain and build** — `RSA-DEP-GIT`, `RSA-DEP-PATH`, `RSA-DEP-PROC-MACRO`, `RSA-DEP-BUILD-DEPENDENCIES`, `RSA-DEP-LOCK-GIT`, `RSA-DEP-VERSION-UNBOUNDED`, `RSA-BUILD-SCRIPT`, `RSA-BUILD-COMMAND`, `RSA-CARGO-SOURCE-REPLACEMENT`, `RSA-CARGO-RUNNER`
+
+**Runtime execution** — `RSA-EXEC-COMMAND`
+
+Every finding carries a rule id, file and line, evidence, why it matters, a concrete risk scenario, and a suggested fix. Findings are deduplicated by `file + startLine + ruleId` and sorted by severity, then confidence, then location.
+
+The scanner tracks Rust comment and literal boundaries, so a pattern inside a block comment, doc example, or string literal is not reported. Findings inside `#[cfg(test)]` code are reported at reduced severity, because test code does not ship.
+
+**Confidence means pattern-detection confidence, not exploitability.** A high-confidence finding says the pattern is definitely there, not that a vulnerability is confirmed.
+
+### Scan scope
+
+A broad audit reads what Cargo actually builds: each crate's `src/`, plus `build.rs`. It skips test, benchmark, and example targets, and skips `.rs` files that no Cargo target reaches at all — sample input, vendored snapshots, scratch material. Code that is never compiled cannot carry runtime risk, and scanning it buries the findings that matter.
+
+The skip is never silent. Every report states how many files were left out and why:
+
+```
+Excluded 18 Rust file(s) from source scanning: 18 file(s) no Cargo target reaches.
+Set includeNonShippedSources to include them.
 ```
 
-`rust_audit_dependencies`
+Pass `includeNonShippedSources: true` to `rust_audit_project` to include them. `rust_review_current_diff` never applies this filter — if you changed a test target, you changed it on purpose, so it is reviewed.
 
-```json
-{
-  "projectPath": "/absolute/path/to/rust/project",
-  "outputFormat": "markdown",
-  "pathMode": "relative",
-  "reportMode": "compact"
-}
-```
+On [`BurntSushi/memchr`](https://github.com/BurntSushi/memchr) this takes a default audit from 1,721 findings to 396; the 1,325 removed were almost entirely one 1.6 MB benchmark *input* file that Cargo never compiles.
 
-`rust_audit_project`
+## What It Is Not
 
-```json
-{
-  "projectPath": "/absolute/path/to/rust/project",
-  "outputFormat": "markdown",
-  "pathMode": "relative",
-  "reportMode": "compact",
-  "includeSuppressed": false
-}
-```
+- **It does not check for known vulnerabilities.** There is no [RustSec advisory database](https://rustsec.org) or CVE lookup — it will not tell you that a dependency version has a published advisory. Run `cargo audit` or `cargo deny` alongside it. ([tracked in the roadmap](ROADMAP.md))
+- Not full AST, data-flow, control-flow, or taint analysis. Rules are line-based patterns with lexical context.
+- Not formal verification, symbolic execution, or a replacement for human review of unsafe invariants.
+- Not a hosted service, SaaS scanner, or uploaded-code scanner. It reads local paths only.
+- Not a generic code review or style tool.
 
-`rust_list_accepted_risks`
+## Current Diff Review
 
-```json
-{
-  "projectPath": "/absolute/path/to/rust/project",
-  "includeExpired": true,
-  "includeInvalid": true,
-  "outputFormat": "markdown",
-  "pathMode": "relative"
-}
-```
+`rust_review_current_diff` reviews the working tree by default, `git diff --cached` with `staged: true`, and `baseRef..headRef` when both refs are given.
 
-## CLI And Debug Helper
+Each finding is classified by its relationship to the change:
 
-The supported preview path is MCP client usage. For local debugging, the repository also includes `npm run mcp:call`, which invokes the same tool handlers without starting an MCP client:
-
-```bash
-npm run mcp:call -- rust_audit_project --projectPath test/fixtures/vulnerable-rust-project --outputFormat markdown
-npm run mcp:call -- rust_audit_project --projectPath test/fixtures/vulnerable-rust-project --outputFormat markdown --reportMode full
-npm run mcp:call -- rust_audit_unsafe --projectPath test/fixtures/vulnerable-rust-project --outputFormat markdown --reportMode compact
-npm run mcp:call -- rust_audit_dependencies --projectPath test/fixtures/dependency-risk --outputFormat markdown --reportMode compact
-npm run mcp:call -- rust_review_current_diff --projectPath /absolute/path/to/rust/project --outputFormat markdown --pathMode relative --reportMode compact
-npm run mcp:call -- rust_review_current_diff --projectPath /absolute/path/to/rust/project --staged true --nearChangedLineWindow 2
-npm run mcp:call -- rust_list_accepted_risks --projectPath test/fixtures/suppressed-rust-project --includeExpired true --includeInvalid true --outputFormat markdown
-```
-
-These commands build the TypeScript project first and print structured JSON to stdout. They are debugging helpers, not a full standalone CLI interface.
-
-## Example Reports
-
-Sanitized example outputs live in `examples/reports/`:
-
-- `rust_review_current_diff.json`
-- `rust_audit_project.json`
-- `rust_audit_project.md`
-- `rust_audit_unsafe.json`
-- `rust_audit_dependencies.json`
-- `rust_list_accepted_risks.json`
-- `rust_list_accepted_risks.md`
-- `mcp-tool-list.json`
-
-The examples use placeholders such as `<repo>` and `/absolute/path/to/...`; they should not contain private machine paths.
-
-## Codex Usage
-
-Recommended natural-language entries:
-
-| Codex request | MCP tool |
+| Relation | Meaning |
 | --- | --- |
-| `@Rust Security Auditor review current diff` | `rust_review_current_diff` |
-| `@Rust Security Auditor check this Rust project before commit` | `rust_review_current_diff` |
-| `@Rust Security Auditor audit unsafe` | `rust_audit_unsafe` |
-| `@Rust Security Auditor audit dependencies` | `rust_audit_dependencies` |
-| `@Rust Security Auditor audit project` | `rust_audit_project` |
-| `@Rust Security Auditor list accepted risks` | `rust_list_accepted_risks` |
-| `@Rust Security Auditor show suppressed risks` | `rust_list_accepted_risks` |
-| `@Rust Security Auditor check expired suppressions` | `rust_list_accepted_risks` |
-| `@Rust Security Auditor review accepted risk inventory before release` | `rust_list_accepted_risks` |
+| `introduced_by_diff` | Starts on an added line. |
+| `same_unsafe_site_context` | Pre-existing, but in the same unsafe block as an added line. |
+| `same_function_context` | Pre-existing, in the same function, different unsafe site. |
+| `nearby_legacy_context` | Line-near an added line, but in a different function or unsafe site. |
+| `unrelated_nearby` | Line-near an added line with no confirmed tie. |
+| `pre_existing_in_changed_file` | In a changed file, outside the changed-line window. |
 
-Codex should summarize tool results as security review output with an overall risk conclusion, blocking issues, recommended fixes, manual-review items, and false-positive or suppression notes. It should not output generic style advice, claim a complete audit, or silently add suppressions.
+Compact output shows `introduced_by_diff`, `same_unsafe_site_context`, and medium-or-higher `same_function_context` at medium/high confidence. Legacy nearby context is hidden so that old unsafe code in a different function does not look like a new blocker — use `reportMode: "full"` to see it, and `includePreExisting: true` to include historical findings in changed files. Lower `nearChangedLineWindow` to 1 or 2 if nearby findings are still noisy.
 
-The Skill documentation lives in:
+The tool also returns a `reviewDecision`:
 
-- `skills/rust-security-auditor/SKILL.md`
-- `skills/rust-security-auditor/examples.md`
-- `skills/rust-security-auditor/troubleshooting.md`
+- `block` — introduced critical/high findings with non-low confidence.
+- `needs_attention` — introduced medium findings, directly relevant same-site or same-function context, low-confidence introduced findings, or expired/invalid suppressions.
+- `pass` — nothing blocking or needing manual review.
 
-## Tool Behavior
-
-### Non-Diff Audit Report Modes
-
-`rust_audit_project`, `rust_audit_unsafe`, and `rust_audit_dependencies` support `reportMode: "compact" | "full"` for Markdown output. `compact` is the default and is intended for Codex summaries, developer handoff, and day-to-day review. `full` preserves the complete per-finding report with evidence, why-it-matters text, risk scenario, suggested fix, suggested tests, references, false-positive notes, and accepted-risk suppression information when present.
-
-For all non-diff audit tools:
-
-- `pathMode` defaults to `relative`, so Markdown uses `.` for scope and relative file locations by default. JSON still keeps the resolved `projectPath`.
-- `compact` keeps the JSON `findings` array complete while hiding most repeated per-finding detail from Markdown.
-- `full` is the better mode for complete audit notes, handoff archives, or suppression review.
-- Confidence means pattern-detection confidence, not exploitability confidence. A high-confidence item is a strong review signal that the configured pattern was found, not a claim that a vulnerability is confirmed or exploitable.
-- Workspace-local path dependencies are grouped in compact Markdown as low-priority trust-boundary signals. JSON and `reportMode: "full"` still preserve each `RSA-DEP-PATH` finding with location and evidence.
-- Non-diff audits are heuristic static review. They are not release gates, formal safety proofs, or substitutes for manual unsafe and supply-chain review.
-
-Compact report shapes:
-
-- `rust_audit_project`: overall risk, severity/category/ruleId counts, top 5 findings, grouped review signals, low-priority workspace path dependency groups, high-priority areas, next audit suggestions, and a few Codex-ready prompts.
-- `rust_audit_unsafe`: unsafe review checklist with counts for unsafe blocks, unsafe fn, unsafe Send/Sync impls, FFI, raw-memory primitives, grouped unsafe sites/functions, required manual invariant review, and reusable Codex prompts.
-- `rust_audit_dependencies`: supply-chain checklist with git/path dependencies, build scripts, proc macros, build dependencies, lockfile git sources, high-priority review items, workspace-local path dependency grouping, and dependency trust prompts.
-
-### Current Diff Review
-
-`rust_review_current_diff` reviews the current Git diff for a local Cargo project or workspace. With no refs and no `staged`, it reviews `git diff`. With `staged: true`, it reviews `git diff --cached`. With both `baseRef` and `headRef`, it reviews `git diff baseRef..headRef`.
-
-Diff findings are classified as:
-
-- `introduced_by_diff`: the finding starts on an added line.
-- `same_unsafe_site_context`: the finding is pre-existing context in the same unsafe block/site as an added line.
-- `same_function_context`: the finding is pre-existing context in the same function as an added line, but not the same unsafe site.
-- `nearby_legacy_context`: the finding is line-near an added line, but lightweight context puts it in a different function or unsafe site.
-- `unrelated_nearby`: the finding is line-near an added line, but no function or unsafe-site tie was confirmed.
-- `pre_existing_in_changed_file`: the finding is in a changed file but outside the changed-line window.
-
-By default, compact current diff review shows `introduced_by_diff`, `same_unsafe_site_context`, and medium-or-higher `same_function_context` findings with medium/high pattern-detection confidence. It hides `nearby_legacy_context`, `unrelated_nearby`, and low/info context findings so different-function legacy unsafe code does not look like a new blocker. Use `reportMode: "full"` to inspect the hidden legacy nearby context, and set `includePreExisting: true` only when you also want historical findings in changed files.
-
-Diff review report options:
-
-- `pathMode`: defaults to `relative`. Use `relative` for PR comments or shared reports so Markdown does not leak local absolute paths. JSON still keeps the resolved `projectPath`.
-- `reportMode`: defaults to `compact`. Compact mode is intended for Codex and PR comments; use `full` when you need changed-file lists, legacy nearby context, accepted/suppressed risk details, and full evidence blocks.
-- `nearChangedLineWindow`: defaults to `3`; reduce it to `1` or `2` when nearby pre-existing findings are too noisy, or increase it only when surrounding invariants matter.
-
-When multiple findings point at the same unsafe site, Markdown uses a grouped view. For example, a generic `RSA-UNSAFE-BLOCK` and a specific `RSA-UNSAFE-TRANSMUTE` on the same unsafe block are displayed under one unsafe site. This is a UX grouping only; the JSON `findings` array remains unchanged and each rule still represents its own review signal.
-
-`rust_review_current_diff` also returns a `reviewDecision`:
-
-- `block`: introduced critical/high review signals with non-low pattern-detection confidence.
-- `needs_attention`: introduced medium review signals, directly relevant same unsafe-site/function context, low-confidence introduced findings, expired suppressions, or invalid suppressions need human review.
-- `pass`: no blocking or manual-review findings were reported.
-
-`reviewDecision` is primarily driven by `introduced_by_diff`. Same unsafe-site high findings can require attention but do not hard-block by default. Same-function medium/high findings enter manual review. `nearby_legacy_context` and `unrelated_nearby` do not affect `safeToCommit` unless `includePreExisting: true` is requested.
-
-Low-confidence findings are review targets, not confirmed vulnerabilities. The same distinction applies to high confidence: it describes how strongly the scanner matched its pattern, not exploitability.
+The decision is driven by `introduced_by_diff`. Same-site high findings need attention but do not hard-block; `nearby_legacy_context` and `unrelated_nearby` never affect it unless you ask for pre-existing findings.
 
 ## Accepted Risk Suppressions
 
-Inline suppressions are accepted-risk records for reviewed false positives or intentionally accepted risks. They are not meant to hide unresolved blockers.
+Suppressions are records of reviewed false positives or deliberately accepted risk — not a way to hide unresolved blockers.
 
 ```rust
 pub fn read_byte(ptr: *const u8) -> u8 {
-    // rustsec-auditor: ignore RSA-UNSAFE-BLOCK owner=@security ticket=SEC-123 until=2026-12-31 -- legacy FFI wrapper reviewed in host project
+    // rust-security-auditor: ignore RSA-UNSAFE-BLOCK owner=@security ticket=SEC-123 until=2026-12-31 -- legacy FFI wrapper reviewed in host project
     unsafe { *ptr }
 }
 ```
 
-Supported formats:
-
 ```rust
-// rustsec-auditor: ignore RULE_ID -- reason
-// rustsec-auditor: ignore RULE_ID until=YYYY-MM-DD -- reason
-// rustsec-auditor: ignore RULE_ID owner=@name -- reason
-// rustsec-auditor: ignore RULE_ID ticket=SEC-123 -- reason
+// rust-security-auditor: ignore RULE_ID -- reason
+// rust-security-auditor: ignore RULE_ID until=YYYY-MM-DD -- reason
+// rust-security-auditor: ignore RULE_ID owner=@name ticket=SEC-123 -- reason
 ```
 
-Rules:
+- The reason after `--` is required, and `RULE_ID` must be an exact rule id.
+- `ignore all` and `ignore *` are not supported.
+- Expired suppressions are reported again; invalid ones are ignored and listed for cleanup.
+- The older `rustsec-auditor:` marker still works but is deprecated — it collides with the unrelated [RustSec](https://rustsec.org) project. Rename existing comments to `rust-security-auditor:`; the scanner warns when it sees the old form.
 
-- The reason after `--` is required.
-- `RULE_ID` must be the exact returned rule id.
-- Broad `ignore all` or `ignore *` directives are not supported.
-- `owner`, `ticket`, and `until` are optional but recommended.
-- Expired suppressions are shown again.
-- Invalid suppressions are ignored and reported for cleanup.
+Use `rust_list_accepted_risks` to inventory active, expired, and invalid suppressions without running the full scanner. Its JSON and Markdown output include scan coverage; treat an incomplete inventory as partial rather than as proof that no accepted risks exist.
 
-Use `rust_list_accepted_risks` to inventory active, expired, and invalid suppression comments without running the full scanner.
+## Report Modes
 
-## Public Modules
+`compact` (default) is built for agent summaries and PR comments: overall risk, severity and rule counts, top findings, grouped review signals, high-priority areas, and suggested follow-up prompts. The JSON `findings` array always stays complete.
 
-- `src/mcp/server.ts`: local stdio MCP server.
-- `src/mcp/tools.ts`: testable MCP tool handlers backed by the scanner kernel.
-- `src/mcp/debug.ts`: local tool debug entrypoint.
-- `src/scanners/rustProjectScanner.ts`: combined Rust project scan entrypoint.
-- `src/scanners/unsafeScanner.ts`: unsafe, FFI, and raw-memory primitive scanner.
-- `src/scanners/dependencyScanner.ts`: Cargo/build.rs dependency risk clue scanner.
-- `src/scanners/acceptedRiskInventory.ts`: standalone accepted-risk suppression inventory.
-- `src/scanners/suppressions.ts`: shared `rustsec-auditor` suppression parser and expiry checks.
-- `src/git/diffParser.ts`: unified git diff parser for hunks and changed line numbers.
-- `src/reports/markdownReport.ts`: Markdown report renderer.
-- `src/reports/jsonReport.ts`: JSON report renderer.
-- `src/reports/schemas.ts`: Finding schema, validation, and summary helpers.
+`full` preserves every per-finding detail — evidence, why it matters, risk scenario, suggested fix, suggested tests, references, false-positive notes, and suppression records. Use it for audit notes, handoff archives, and suppression review.
 
-## Current Rule Set
-
-Unsafe and FFI:
-
-- `RSA-UNSAFE-BLOCK`
-- `RSA-UNSAFE-FN`
-- `RSA-UNSAFE-IMPL-SEND`
-- `RSA-UNSAFE-IMPL-SYNC`
-- `RSA-FFI-EXTERN-C`
-- `RSA-UNSAFE-TRANSMUTE`
-- `RSA-UNSAFE-MAYBEUNINIT`
-- `RSA-UNSAFE-FROM-RAW-PARTS`
-- `RSA-UNSAFE-SET-LEN`
-- `RSA-UNSAFE-BOX-FROM-RAW`
-
-Dependency and build:
-
-- `RSA-DEP-GIT`
-- `RSA-DEP-PATH`
-- `RSA-DEP-PROC-MACRO`
-- `RSA-DEP-BUILD-DEPENDENCIES`
-- `RSA-DEP-LOCK-GIT`
-- `RSA-BUILD-SCRIPT`
-- `RSA-BUILD-COMMAND`
-
-Findings are deduplicated by `file + startLine + ruleId` and sorted by severity, pattern-detection confidence, file, then line. Every emitted finding includes `ruleId`, `file`, severity, confidence, category, evidence, why it matters, risk scenario, and suggested fix.
+When several findings point at one unsafe site, Markdown groups them under that site. This is display only; the JSON is unchanged.
 
 ## Development
 
-Common checks:
-
 ```bash
+npm ci
 npm run typecheck
 npm test
-git diff --check
+npm run check      # typecheck + test + whitespace
 ```
 
-Build output goes to `dist/` and is intentionally ignored by Git.
+For local debugging without an MCP client:
 
-## Security Model And Limits
+```bash
+npm run mcp:call -- rust_audit_project --projectPath test/fixtures/vulnerable-rust-project --outputFormat markdown
+npm run mcp:call -- rust_review_current_diff --projectPath /absolute/path/to/rust/project --staged true
+```
 
-Rust Security Auditor is a local, heuristic static scanner. It does not upload repositories, package source bundles, or scanned code to an external service. The MCP server validates that `projectPath` exists and is a local directory, resolves it, scans within that directory, filters Git diff paths to safe relative paths, and returns structured errors for invalid input.
+Build output goes to `dist/` and is git-ignored. Adding a rule is described in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-The current preview does not build a full Rust AST, execute semantic data-flow or taint analysis, prove unsafe invariants, or provide a formal security guarantee. Treat findings as focused review signals with concrete evidence, especially around unsafe invariants, FFI boundaries, build-time execution, and supply-chain trust boundaries.
+Source layout:
+
+| Path | Contents |
+| --- | --- |
+| `src/mcp/server.ts` | Local stdio MCP server |
+| `src/mcp/tools.ts` | Tool handlers backed by the scanner kernel |
+| `src/scanners/rustLexer.ts` | Comment/literal masking and test-code detection |
+| `src/scanners/unsafeScanner.ts` | Unsafe, FFI, and raw-memory rules |
+| `src/scanners/dependencyScanner.ts` | Cargo manifest, lockfile, build script, and cargo config rules |
+| `src/scanners/sourceRiskScanner.ts` | Runtime process execution |
+| `src/scanners/rules.ts` | Rule metadata: severity, rationale, remediation |
+| `src/scanners/suppressions.ts` | Suppression parsing and expiry |
+| `src/git/diffParser.ts` | Unified diff parser |
+| `src/reports/` | Markdown and JSON renderers, finding schema |
+
+## Security Model
+
+The server validates that `projectPath` exists and is a local directory, scans only within it, filters git diff paths to safe relative paths, refuses git refs that could be read as flags, and runs `git` without a shell. It does not upload code, package source bundles, or contact any network service.
+
+Discovery skips `.git`, `target`, `node_modules`, and similar directories, does not follow symbolic links, verifies a directory again immediately after opening it, and caps per-file size, file count, directory count, total bytes, and read concurrency. Before returning source bytes, the reader verifies canonical containment, rejects symbolic-link components, checks that the pathname still resolves to the opened file, and limits the read to that descriptor's verified size. Coverage is monotonic within a tool call: optional context extraction cannot turn an incomplete changed input into complete coverage. Malformed Rust lexical input disables test-only severity reductions and marks coverage incomplete. Coverage is structured in JSON and Markdown; a current diff with an incomplete Rust/Cargo input fails closed as `needs_attention` with `safeToCommit: false`.
+
+See [SECURITY.md](SECURITY.md) for reporting a vulnerability in this tool and for what is in and out of scope.
+
+## Status
+
+v0.1.x local-first MCP preview. Local, read-only Rust review — not a hosted scanner, ChatGPT App, or marketplace product. Publication, tag, release, registry state, and client-support claims are **HOLD** pending owner verification; a passing local test suite does not publish a package. See [ROADMAP.md](ROADMAP.md).

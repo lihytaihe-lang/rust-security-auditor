@@ -1,17 +1,63 @@
 {
   "serverName": "rust-security-auditor",
-  "stdioServer": {
-    "command": "npm",
-    "args": ["--silent", "run", "mcp"],
-    "cwd": "/absolute/path/to/rust-security-auditor"
+  "status": "configuration-reference-only",
+  "primaryLocalCheckoutServer": "/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js",
+  "primaryLaunch": {
+    "command": "node",
+    "args": [
+      "/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"
+    ]
   },
-  "codexExample": {
-    "mcpServers": {
-      "rust-security-auditor": {
-        "command": "npm",
-        "args": ["--silent", "run", "mcp"],
-        "cwd": "/absolute/path/to/rust-security-auditor"
-      }
+  "optionalPublishedPackage": {
+    "status": "not-published",
+    "command": "npx",
+    "args": [
+      "--yes",
+      "rust-security-auditor"
+    ],
+    "note": "Use only after an owner-approved npm release; this is not the primary checkout path."
+  },
+  "hostConfigurationReferences": {
+    "claudeCode": {
+      "command": "claude mcp add --transport stdio rust-security-auditor -- node /absolute/path/to/rust-security-auditor/dist/src/mcp/server.js",
+      "status": "configuration-reference-only"
+    },
+    "codex": {
+      "file": "~/.codex/config.toml or .codex/config.toml in a trusted project",
+      "toml": "[mcp_servers.rust_security_auditor]\ncommand = \"node\"\nargs = [\"/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js\"]",
+      "status": "configuration-reference-only"
+    },
+    "cursor": {
+      "file": ".cursor/mcp.json or ~/.cursor/mcp.json",
+      "contents": {
+        "mcpServers": {
+          "rust-security-auditor": {
+            "command": "node",
+            "args": [
+              "/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"
+            ]
+          }
+        }
+      },
+      "status": "configuration-reference-only"
+    },
+    "vsCodeCopilot": {
+      "file": ".vscode/mcp.json or the user mcp.json opened by VS Code",
+      "contents": {
+        "servers": {
+          "rustSecurityAuditor": {
+            "command": "node",
+            "args": [
+              "/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"
+            ]
+          }
+        }
+      },
+      "status": "configuration-reference-only"
+    },
+    "claudeDesktop": {
+      "status": "unverified",
+      "note": "The package does not ship the .mcpb Desktop Extension expected by the current official Claude Desktop installation flow."
     }
   },
   "tools": [
@@ -43,7 +89,7 @@
     },
     {
       "name": "rust_review_current_diff",
-      "whenToUse": "Before commit, before PR, after Codex generated code, or after touching unsafe/dependencies/build.rs. Returns reviewDecision, suppressionSummary, and suggestedFixPrompt values without modifying code or adding suppressions.",
+      "whenToUse": "Before commit, before PR, after agent-generated code, or after touching unsafe/dependencies/build.rs. Returns reviewDecision, suppressionSummary, and suggestedFixPrompt values without modifying code or adding suppressions.",
       "arguments": {
         "projectPath": "/absolute/path/to/rust/project",
         "baseRef": "main",
@@ -55,7 +101,7 @@
     },
     {
       "name": "rust_list_accepted_risks",
-      "whenToUse": "Before release, during security re-review, when checking expired suppressions, or when cleaning up invalid rustsec-auditor suppression comments. Returns an accepted-risk inventory without running the full scanner or modifying code.",
+      "whenToUse": "Before release, during security re-review, when checking expired suppressions, or when cleaning up invalid suppression comments. Returns an accepted-risk inventory without running the full scanner or modifying code.",
       "arguments": {
         "projectPath": "/absolute/path/to/rust/project",
         "includeExpired": true,
@@ -67,7 +113,7 @@
   "troubleshooting": [
     {
       "symptom": "MCP client fails while starting or parsing the first message.",
-      "check": "Use npm --silent run mcp. Plain npm run mcp may print npm lifecycle banners to stdout, which corrupts MCP stdio JSON-RPC."
+      "check": "Build the local checkout with npm run build, then configure node with the absolute dist/src/mcp/server.js path. npm --silent run mcp is only a checkout debugging command because it rebuilds before launch."
     },
     {
       "symptom": "Tool returns PROJECT_PATH_NOT_FOUND.",

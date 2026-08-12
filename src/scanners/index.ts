@@ -1,8 +1,12 @@
 export * from "./acceptedRiskInventory.js";
+export * from "./cargoTargets.js";
 export * from "./dependencyScanner.js";
 export * from "./projectScanner.js";
 export * from "./rustProjectScanner.js";
 export * from "./rules.js";
+export * from "./scannerUtils.js";
+export { findTestCodeLines, isImportLine, maskRustSource, type MaskedRustSource } from "./rustLexer.js";
+export * from "./sourceRiskScanner.js";
 export * from "./suppressions.js";
 export * from "./types.js";
 export * from "./unsafeScanner.js";

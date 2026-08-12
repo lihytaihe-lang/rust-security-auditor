@@ -1,6 +1,6 @@
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { GitDiffFile } from "../git/index.js";
+import type { SafeSourceReader } from "../scanners/scannerUtils.js";
 import type { RustFunctionContext, UnsafeSiteContext } from "./types.js";
 
 export interface RustLineContext {
@@ -15,20 +15,23 @@ export interface RustFileContext {
 }
 
 export async function extractRustContextForDiffFiles(
-  projectPath: string,
+  sourceReader: SafeSourceReader,
   diffFiles: readonly GitDiffFile[]
 ): Promise<Map<string, RustFileContext>> {
   const contexts = new Map<string, RustFileContext>();
-  const rustFiles = [...new Set(diffFiles.map((file) => file.filePath).filter((file) => file.endsWith(".rs")))];
+  const rustFiles = [
+    ...new Set(diffFiles.filter((file) => file.newPath !== undefined).map((file) => file.filePath).filter((file) => file.endsWith(".rs")))
+  ];
 
   await Promise.all(
     rustFiles.map(async (file) => {
-      try {
-        const source = await readFile(join(projectPath, file), "utf8");
-        contexts.set(file, extractRustFileContext(file, source.split(/\r?\n/)));
-      } catch {
-        // Deleted or unreadable files can still appear in a diff; skip context rather than failing review.
-      }
+      const lines = await sourceReader.readTextLines(
+        join(sourceReader.rootPath, file),
+        file,
+        "rust",
+        "rust_context"
+      );
+      if (lines !== undefined) contexts.set(file, extractRustFileContext(file, lines));
     })
   );
 
@@ -36,7 +39,7 @@ export async function extractRustContextForDiffFiles(
 }
 
 export async function extractRustContextForProjectFiles(
-  projectPath: string,
+  sourceReader: SafeSourceReader,
   files: readonly string[]
 ): Promise<Map<string, RustFileContext>> {
   const contexts = new Map<string, RustFileContext>();
@@ -44,12 +47,13 @@ export async function extractRustContextForProjectFiles(
 
   await Promise.all(
     rustFiles.map(async (file) => {
-      try {
-        const source = await readFile(join(projectPath, file), "utf8");
-        contexts.set(file, extractRustFileContext(file, source.split(/\r?\n/)));
-      } catch {
-        // Non-diff audit reports can still be useful without function/site context.
-      }
+      const lines = await sourceReader.readTextLines(
+        join(sourceReader.rootPath, file),
+        file,
+        "rust",
+        "rust_context"
+      );
+      if (lines !== undefined) contexts.set(file, extractRustFileContext(file, lines));
     })
   );
 

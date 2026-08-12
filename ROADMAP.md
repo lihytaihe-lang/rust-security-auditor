@@ -2,13 +2,13 @@
 
 ## Current Stage Alignment
 
-Current true stage as of 2026-08-11: v0.1.1 is a publicly released local-first MCP preview. Stage 2.3 repository-side hosted MCP validation was completed, but Stage 2.4 and any Codex plugin / ChatGPT App publication path remain deferred.
+Current stage as of 2026-08-11: local technical readiness work is in progress for v0.1.2 metadata. npm publication, Git tags/releases, and registry facts are **HOLD** until the owner verifies them from authoritative sources.
 
-Detailed progress tracking lives in `docs/STAGE2_PROGRESS.md`.
+Historical stage tracking lives in `docs/internal/STAGE2_PROGRESS.md`.
 
 ## Public Preview Boundary
 
-This public release is a local stdio MCP preview, not a Codex plugin publication effort or ChatGPT App release candidate.
+This public preview is a local stdio MCP package, not a Codex plugin publication effort or ChatGPT App release candidate.
 
 It deliberately excludes:
 
@@ -19,52 +19,40 @@ It deliberately excludes:
 
 Future hosted or private-code work needs its own product, privacy, security, and maintenance decision. It is not implied by this open-source release.
 
-## v0.1 Local MCP Preview
+## Shipped
 
-- Local stdio MCP server for Codex and other MCP clients.
+- Local stdio MCP server with client-configuration references. A host is only called supported after host/version/OS end-to-end evidence exists.
 - Five read-only MCP tools.
-- Heuristic Rust security scanner kernel.
-- Unsafe/FFI review.
-- Cargo dependency and build-script review.
-- Markdown and JSON report output.
-- Local debug helper with `npm run mcp:call`.
-- Public preview documentation, examples, CI, and contribution/security guidance.
+- Heuristic Rust security scanner kernel with comment and literal awareness.
+- Unsafe/FFI review, Cargo dependency, build-script, and `.cargo/config.toml` review.
+- Changed-line-aware current diff review with review decisions.
+- Accepted-risk suppression workflow and inventory.
+- Markdown and JSON report output in compact and full modes.
+- Documentation, sanitized examples, cross-platform CI, and contribution/security guidance.
 
-## Current Preview Focus
+## Current Focus
 
-- Changed-line-aware current diff review with `rust_review_current_diff`.
-- Accepted-risk inventory with `rust_list_accepted_risks`.
-- Stable example reports in `examples/reports/`.
-- Low-noise local review workflows before commit, before PR, after Codex-generated code, and before accepted-risk review.
+- Precision over coverage: fewer false positives per rule, clear evidence per finding.
+- Low-noise review workflows before commit, before PR, after agent-generated code, and before release.
+- Keeping example reports in `examples/reports/` regenerable via `npm run examples:regenerate`.
 
-## Stage 2 Hosted MCP Alignment
+## Hosted and app boundary
 
-- Stage 2.0 is complete: the hosted MCP / ChatGPT App prototype design exists in `docs/STAGE2_HOSTED_MCP_DESIGN.md`.
-- Stage 2.1 was merged into the design baseline: official-docs research and architecture confirmation are recorded in the design document.
-- Stage 2.2 was merged into Stage 2.3: the hosted transport spike exists, but the practical milestone is now repository-side hosted MCP validation.
-- Stage 2.3 is complete for repository-side validation:
-  - fixture-safe Hosted MCP prototype
-  - `scripts/smoke_hosted_mcp.ts`
-  - local hosted `/mcp` smoke path
-  - temporary HTTPS tunnel smoke evidence
-  - fixture-safe sample outputs
-  - ChatGPT App submission pack skeleton
-- Stage 2.4 is blocked, not complete: retry is needed in a ChatGPT account, organization, or session where the Developer Mode connector creation entry is visible.
+Hosted MCP, HTTP transport, ChatGPT Apps, SaaS scanning, source upload, private-repository connection, telemetry, accounts, and marketplaces are outside the v0.1.x package. The prior hosted experiment is not part of this build or npm tarball. Any future hosted product needs a separate threat model, privacy design, owner authorization, and release plan.
 
-Stage 2.3 completion does not mean hosted deployment, ChatGPT App UI, OpenAI submission, private GitHub access, or private repository scanning.
+## Next
+
+- **Known-vulnerability coverage.** The scanner has no RustSec advisory or CVE lookup today, which is the most common expectation the project name sets. The intended shape is an optional integration: detect a local `cargo-audit` or `cargo-deny` installation, run it, and map its results into the existing `Finding` schema so advisories appear alongside heuristic findings; degrade with a clear message when neither tool is installed. Bundling or fetching the advisory database is explicitly not planned — that would turn a local, offline, read-only tool into something that needs network access and database maintenance.
+- Cargo profile and lint review, such as `panic = "abort"` at an FFI boundary and `overflow-checks = false` in release.
+- Reporting `#![forbid(unsafe_code)]` as a positive signal rather than staying silent.
 
 ## Deferred Work
 
-- Stage 2 hosted MCP / ChatGPT App prototype path:
-  - v0.1.x local MCP preview.
-  - Stage 2.4 ChatGPT Developer Mode demo validation.
-  - Future v0.2.0 hosted MCP prototype packaging, if the validation pass is accepted.
-  - Future ChatGPT App submission preparation, after a real connector validation pass.
 - AST-aware Rust parsing.
 - Deeper unsafe invariant analysis.
 - Release audit report output.
 - Codex plugin packaging.
-- ChatGPT App UI later, not in the local preview.
+- Host-specific MCP end-to-end evidence, after each host is verified against its official documentation and a real runtime.
 
 These items are intentionally deferred by the public-preview boundary above.
 
@@ -75,6 +63,3 @@ These items are intentionally deferred by the public-preview boundary above.
 - Generic code review.
 - Large new scanner rule families.
 - Formal verification or full data-flow/taint analysis.
-- Private GitHub access during Stage 2.3.
-- OpenAI app submission during Stage 2.3.
-- ChatGPT App UI component during Stage 2.3.

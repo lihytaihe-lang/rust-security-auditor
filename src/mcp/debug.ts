@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { isEntryPointModule } from "../utils/paths.js";
 import { callRustAuditTool, isMcpToolName } from "./tools.js";
 import type { McpToolName, RustAuditToolInput } from "./types.js";
 
@@ -66,7 +65,7 @@ Tools:
 }
 
 function isDirectRun(): boolean {
-  return process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+  return isEntryPointModule(import.meta.url);
 }
 
 if (isDirectRun()) {

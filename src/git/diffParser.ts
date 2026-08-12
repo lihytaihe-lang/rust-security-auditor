@@ -103,6 +103,16 @@ export function parseUnifiedDiff(input: string): ParsedGitDiff {
   };
 }
 
+/**
+ * Git always separates path components with `/`, so a backslash that survives
+ * `unquoteGitPath` is part of a file *name*, not a separator.
+ *
+ * Rewriting it to `/` aliases one file onto another: on POSIX a repository can
+ * hold both `src/alias.rs` and a file literally named `src\alias.rs`, and the
+ * rewrite made a change to the second one look like a change to the first. The
+ * scanner then reported the harmless sibling's findings — none — and returned
+ * `pass` with `safeToCommit: true` for a diff that introduced a real one.
+ */
 export function normalizeGitDiffPath(rawPath: string): string | undefined {
   let path = stripHeaderMetadata(rawPath.trim());
 
@@ -116,7 +126,7 @@ export function normalizeGitDiffPath(rawPath: string): string | undefined {
     path = path.slice(2);
   }
 
-  const normalized = posix.normalize(path.replaceAll("\\", "/"));
+  const normalized = posix.normalize(path);
 
   if (
     normalized === "." ||
@@ -129,6 +139,33 @@ export function normalizeGitDiffPath(rawPath: string): string | undefined {
   }
 
   return normalized;
+}
+
+/**
+ * True when the current platform can address a Git path without reinterpreting
+ * any of its characters.
+ *
+ * Windows treats backslashes and several Win32 name spellings as something
+ * other than literal file-name characters. Such a Git path must never be
+ * resolved against the working tree: doing so could silently address a
+ * different file. Callers must fail closed rather than review whatever that
+ * path happens to hit.
+ */
+export function isPlatformAddressableGitPath(path: string, platform: NodeJS.Platform = process.platform): boolean {
+  if (platform !== "win32") return true;
+
+  // Windows would reinterpret these spellings instead of opening the exact Git
+  // path: `:` can select an alternate data stream, trailing dots/spaces are
+  // discarded, and DOS device names do not name ordinary files. Treating any of
+  // them as readable would recreate the aliasing bug through a different path.
+  return path.split("/").every((component) => isWindowsAddressablePathComponent(component));
+}
+
+function isWindowsAddressablePathComponent(component: string): boolean {
+  if (component.length === 0 || /[<>:"\\|?*\u0000-\u001F]/.test(component)) return false;
+  if (/[. ]$/.test(component)) return false;
+
+  return !/^(?:CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?:\..*)?$/i.test(component);
 }
 
 function createFileFromDiffHeader(line: string): MutableGitDiffFile {

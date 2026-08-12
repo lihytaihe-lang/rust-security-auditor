@@ -1,8 +1,8 @@
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, posix, relative, resolve } from "node:path";
-import { parseUnifiedDiff, type GitDiffFile, type ParsedGitDiff } from "../git/index.js";
+import { isPlatformAddressableGitPath, parseUnifiedDiff, type GitDiffFile, type ParsedGitDiff } from "../git/index.js";
 import { renderMarkdownReport, toJsonReport, type AuditReportInput, type Category, categories, type Finding, type Severity, severities } from "../reports/index.js";
-import { DependencyScanner, ProjectScanner, UnsafeScanner, discoverRustProject, listAcceptedRiskInventory, scanRustProject, type RustProject, type RustProjectScanResult } from "../scanners/index.js";
+import { DependencyScanner, ProjectScanner, SafeSourceReader, SourceRiskScanner, UnsafeScanner, isBuildScriptPath, isCargoConfigPath, isCargoLockPath, isCargoTomlPath, isRustSourcePath, listAcceptedRiskInventory, ruleHasToolScope, scanRustProject, type RustProject, type RustProjectScanResult, type ScanCoverage, type ScanCoverageEntry, type ScanInputType, type ToolScope } from "../scanners/index.js";
 import { countActiveSuppressions, countExpiredSuppressions, countInvalidSuppressions, dedupeFindings, sortFindings } from "../scanners/resultUtils.js";
 import type { SuppressedFinding } from "../scanners/types.js";
 import { runShellCommand } from "../utils/shell.js";
@@ -49,8 +49,6 @@ import {
   mcpToolNames
 } from "./types.js";
 
-const dependencyRulePrefixes = ["RSA-DEP-", "RSA-BUILD-"] as const;
-const unsafeRulePrefixes = ["RSA-UNSAFE-", "RSA-FFI-"] as const;
 const defaultNearChangedLineWindow = 3;
 const confidenceExplanation = "pattern-detection confidence, not exploitability confidence";
 
@@ -83,8 +81,10 @@ export async function rustAuditProject(input: RustAuditProjectInput): Promise<Mc
     const reportMode = normalizeReportMode(input.reportMode);
     const scan = await scanRustProject({
       workspacePath: projectPath,
-      includeSuppressed: input.includeSuppressed === true
+      includeSuppressed: input.includeSuppressed === true,
+      includeNonShippedSources: input.includeNonShippedSources === true
     });
+    requireRustProject(scan.project);
 
     return buildToolOutput({
       tool: "rust_audit_project",
@@ -96,7 +96,8 @@ export async function rustAuditProject(input: RustAuditProjectInput): Promise<Mc
       pathMode,
       reportMode,
       title: "Rust Project Security Audit",
-      warnings: scan.warnings
+      warnings: [...scan.warnings, ...scanCoverageWarnings(scan.scanCoverage)],
+      scanCoverage: scan.scanCoverage
     });
   });
 }
@@ -107,6 +108,7 @@ export async function rustAuditUnsafe(input: RustAuditUnsafeInput): Promise<McpA
     const pathMode = normalizePathMode(input.pathMode);
     const reportMode = normalizeReportMode(input.reportMode);
     const projectResult = await new ProjectScanner().scan({ workspacePath: projectPath });
+    requireRustProject(projectResult.project);
     const unsafeResult = await new UnsafeScanner().scan({
       workspacePath: projectPath,
       project: projectResult.project
@@ -117,21 +119,22 @@ export async function rustAuditUnsafe(input: RustAuditUnsafeInput): Promise<McpA
       .filter((finding) => includeDocumentedUnsafe || !isDocumentedUnsafeFinding(finding));
     const rustContexts =
       input.outputFormat === "markdown" && reportMode === "compact"
-        ? await extractRustContextForProjectFiles(projectPath, projectResult.project.rustSourceFiles.map((file) => file.file))
+        ? await extractRustContextForProjectFiles(projectResult.project.sourceReader, projectResult.project.rustSourceFiles.map((file) => file.file))
         : undefined;
 
     return buildToolOutput({
       tool: "rust_audit_unsafe",
       projectPath,
       findings,
-      suppressedCount: unsafeResult.suppressedCount ?? 0,
-      suppressedFindings: unsafeResult.suppressedFindings ?? [],
+      suppressedCount: countActiveSuppressions(filterSuppressedFindingsByToolScope(unsafeResult.suppressedFindings ?? [], "unsafe")),
+      suppressedFindings: filterSuppressedFindingsByToolScope(unsafeResult.suppressedFindings ?? [], "unsafe"),
       outputFormat: input.outputFormat,
       pathMode,
       reportMode,
       rustContexts,
       title: "Rust Unsafe And FFI Audit",
-      warnings: [...projectResult.warnings, ...unsafeResult.warnings]
+      warnings: [...projectResult.warnings, ...unsafeResult.warnings, ...scanCoverageWarnings(projectResult.project.sourceReader.coverage())],
+      scanCoverage: projectResult.project.sourceReader.coverage()
     });
   });
 }
@@ -142,6 +145,7 @@ export async function rustAuditDependencies(input: RustAuditDependenciesInput): 
     const pathMode = normalizePathMode(input.pathMode);
     const reportMode = normalizeReportMode(input.reportMode);
     const projectResult = await new ProjectScanner().scan({ workspacePath: projectPath });
+    requireRustProject(projectResult.project);
     const dependencyResult = await new DependencyScanner().scan({
       workspacePath: projectPath,
       project: projectResult.project
@@ -152,13 +156,14 @@ export async function rustAuditDependencies(input: RustAuditDependenciesInput): 
       tool: "rust_audit_dependencies",
       projectPath,
       findings,
-      suppressedCount: dependencyResult.suppressedCount ?? 0,
-      suppressedFindings: dependencyResult.suppressedFindings ?? [],
+      suppressedCount: countActiveSuppressions(filterSuppressedFindingsByToolScope(dependencyResult.suppressedFindings ?? [], "dependency")),
+      suppressedFindings: filterSuppressedFindingsByToolScope(dependencyResult.suppressedFindings ?? [], "dependency"),
       outputFormat: input.outputFormat,
       pathMode,
       reportMode,
       title: "Rust Dependency And Supply-Chain Audit",
-      warnings: [...projectResult.warnings, ...dependencyResult.warnings]
+      warnings: [...projectResult.warnings, ...dependencyResult.warnings, ...scanCoverageWarnings(projectResult.project.sourceReader.coverage())],
+      scanCoverage: projectResult.project.sourceReader.coverage()
     });
   });
 }
@@ -169,16 +174,21 @@ export async function rustReviewCurrentDiff(input: RustReviewCurrentDiffInput): 
     const pathMode = normalizePathMode(input.pathMode);
     const reportMode = normalizeReportMode(input.reportMode);
     const nearChangedLineWindow = normalizeNearChangedLineWindow(input.nearChangedLineWindow);
+    const projectResult = await new ProjectScanner().scan({ workspacePath: projectPath, includeNonShippedSources: true });
+    requireRustProject(projectResult.project);
     const gitDiff = await readGitDiff(projectPath, input);
+    requireAddressableDiffPaths(gitDiff.diff);
     const diffAffectedFiles = affectedFilePaths(gitDiff.diff);
-    const affectedFiles = new Set(diffAffectedFiles);
+    const affectedFiles = new Set(currentScannableDiffFiles(gitDiff.diff));
     const scan =
       affectedFiles.size === 0
-        ? emptyRustProjectScan(projectPath)
-        : await scanRustProjectFiles(projectPath, affectedFiles);
+        ? emptyRustProjectScan(projectPath, projectResult.project.sourceReader)
+        : await scanRustProjectFiles(projectPath, affectedFiles, projectResult.project);
+    markDiffCoverage(scan.project, gitDiff.diff.files);
     const suppressedFindings = scan.suppressedFindings ?? [];
     const suppressionSummary = summarizeSuppressions(suppressedFindings);
-    const rustContexts = await extractRustContextForDiffFiles(projectPath, gitDiff.diff.files);
+    const rustContexts = await extractRustContextForDiffFiles(scan.project.sourceReader, gitDiff.diff.files);
+    const scanCoverage = scan.project.sourceReader.coverage();
     const allEnrichedFindings = attachSuppressionMetadata(
       enrichFindingsWithDiff(scan.findings, gitDiff.diff.files, nearChangedLineWindow, rustContexts),
       suppressedFindings
@@ -193,7 +203,11 @@ export async function rustReviewCurrentDiff(input: RustReviewCurrentDiffInput): 
     const unsafeSiteGroupCount = reviewGroups.filter((group) => group.unsafeSite !== undefined).length;
     const findings = enrichedFindings.map((item) => item.finding);
     const relationCounts = countRelations(allEnrichedFindings);
-    const reviewDecision = inferReviewDecision(enrichedFindings, { includePreExisting, reportMode });
+    const reviewDecision = inferReviewDecision(enrichedFindings, {
+      includePreExisting,
+      reportMode,
+      incompleteCoverage: incompleteDiffCoverage(scanCoverage)
+    });
     const summaryMetrics = summarizeDiffReviewMetrics({
       allFindings: allEnrichedFindings,
       visibleFindings: enrichedFindings,
@@ -217,6 +231,7 @@ export async function rustReviewCurrentDiff(input: RustReviewCurrentDiffInput): 
     };
     const warnings = [
       ...scan.warnings,
+      ...scanCoverageWarnings(scanCoverage),
       ...gitDiff.warnings,
       "rust_review_current_diff is changed-line aware, but it is still heuristic scanner output rather than full data-flow or taint analysis.",
       "near_changed_lines is split into same_unsafe_site_context, same_function_context, nearby_legacy_context, and unrelated_nearby relations."
@@ -244,7 +259,8 @@ export async function rustReviewCurrentDiff(input: RustReviewCurrentDiffInput): 
       diffReview,
       reviewDecision,
       summaryMetrics,
-      reviewGroups
+      reviewGroups,
+      scanCoverage
     });
   });
 }
@@ -254,17 +270,22 @@ export async function rustListAcceptedRisks(
 ): Promise<AcceptedRiskInventoryToolOutput> {
   try {
     const projectPath = await resolveRustProjectPath(input.projectPath);
+    const projectResult = await new ProjectScanner().scan({ workspacePath: projectPath });
+    requireRustProject(projectResult.project);
     const inventory = await listAcceptedRiskInventory({
       workspacePath: projectPath,
       includeExpired: input.includeExpired === true,
-      includeInvalid: input.includeInvalid === true
+      includeInvalid: input.includeInvalid === true,
+      sourceReader: projectResult.project.sourceReader
     });
     const pathMode = normalizePathMode(input.pathMode);
     const output: AcceptedRiskInventoryToolOutput = {
       tool: "rust_list_accepted_risks",
       projectPath,
       summary: inventory.summary,
-      acceptedRisks: inventory.acceptedRisks
+      acceptedRisks: inventory.acceptedRisks,
+      scanCoverage: inventory.scanCoverage,
+      warnings: scanCoverageWarnings(inventory.scanCoverage)
     };
 
     if (input.outputFormat === "markdown") {
@@ -274,6 +295,7 @@ export async function rustListAcceptedRisks(
         summary: inventory.summary,
         acceptedRisks: inventory.acceptedRisks
       });
+      output.reportMarkdown = `${output.reportMarkdown.trimEnd()}\n\n${renderScanCoverageMarkdown(inventory.scanCoverage)}`;
     }
 
     return output;
@@ -357,17 +379,16 @@ async function resolveLocalProjectPath(projectPath: string): Promise<string> {
 }
 
 async function resolveRustProjectPath(projectPath: string): Promise<string> {
-  const resolved = await resolveLocalProjectPath(projectPath);
-  const project = await discoverRustProject(resolved);
+  return await resolveLocalProjectPath(projectPath);
+}
 
+function requireRustProject(project: RustProject): void {
   if (!project.isRustProject) {
     throw new McpToolInputError(
       "PROJECT_PATH_NOT_RUST_PROJECT",
-      `projectPath is not a Rust project: ${resolved}. Expected a local Cargo project or workspace containing at least one Cargo.toml.`
+      `projectPath is not a Rust project: ${project.workspacePath}. Expected a local Cargo project or workspace containing at least one Cargo.toml.`
     );
   }
-
-  return resolved;
 }
 
 function buildToolOutput(input: {
@@ -383,6 +404,7 @@ function buildToolOutput(input: {
   title: string;
   warnings: readonly string[];
   diffAffectedFiles?: readonly string[] | undefined;
+  scanCoverage?: ScanCoverage | undefined;
 }): McpAuditToolOutput {
   const reportInput: AuditReportInput = {
     title: input.title,
@@ -420,6 +442,9 @@ function buildToolOutput(input: {
             warnings: input.warnings,
             rustContexts: input.rustContexts
           });
+    if (input.scanCoverage !== undefined) {
+      output.reportMarkdown = `${output.reportMarkdown.trimEnd()}\n\n${renderScanCoverageMarkdown(input.scanCoverage)}`;
+    }
   }
 
   if (input.warnings.length > 0) {
@@ -432,6 +457,10 @@ function buildToolOutput(input: {
 
   if (suppressedFindings.length > 0) {
     output.suppressedFindings = [...suppressedFindings];
+  }
+
+  if (input.scanCoverage !== undefined) {
+    output.scanCoverage = input.scanCoverage;
   }
 
   return output;
@@ -1107,6 +1136,7 @@ function buildDiffReviewToolOutput(input: {
   diffReview: DiffReviewDetails;
   reviewDecision: NonNullable<McpAuditToolOutput["reviewDecision"]>;
   summaryMetrics: DiffReviewSummaryMetrics;
+  scanCoverage?: ScanCoverage | undefined;
 }): McpAuditToolOutput {
   const reportInput: AuditReportInput = {
     title: input.title,
@@ -1137,7 +1167,8 @@ function buildDiffReviewToolOutput(input: {
       diffContext: item.diffContext,
       actionability: item.actionability,
       suppression: item.suppression
-    }))
+    })),
+    ...(input.scanCoverage === undefined ? {} : { scanCoverage: input.scanCoverage })
   };
 
   if (input.outputFormat === "markdown") {
@@ -1155,6 +1186,9 @@ function buildDiffReviewToolOutput(input: {
       diffReview: input.diffReview,
       reviewDecision: input.reviewDecision
     });
+    if (input.scanCoverage !== undefined) {
+      output.reportMarkdown = `${output.reportMarkdown.trimEnd()}\n\n${renderScanCoverageMarkdown(input.scanCoverage)}`;
+    }
   }
 
   if (input.warnings.length > 0) {
@@ -1971,11 +2005,18 @@ function titleCase(value: string): string {
 }
 
 function isUnsafeOrFfiFinding(finding: Finding): boolean {
-  return unsafeRulePrefixes.some((prefix) => finding.ruleId.startsWith(prefix));
+  return ruleHasToolScope(finding.ruleId, "unsafe");
 }
 
 function isDependencyOrBuildFinding(finding: Finding): boolean {
-  return dependencyRulePrefixes.some((prefix) => finding.ruleId.startsWith(prefix));
+  return ruleHasToolScope(finding.ruleId, "dependency");
+}
+
+function filterSuppressedFindingsByToolScope(
+  suppressions: readonly SuppressedFinding[],
+  toolScope: ToolScope
+): SuppressedFinding[] {
+  return suppressions.filter((suppression) => ruleHasToolScope(suppression.ruleId, toolScope));
 }
 
 function isDocumentedUnsafeFinding(finding: Finding): boolean {
@@ -1986,40 +2027,65 @@ function isDocumentedUnsafeFinding(finding: Finding): boolean {
   );
 }
 
-async function scanRustProjectFiles(projectPath: string, files: ReadonlySet<string>): Promise<RustProjectScanResult> {
-  const projectResult = await new ProjectScanner().scan({ workspacePath: projectPath });
+async function scanRustProjectFiles(
+  projectPath: string,
+  files: ReadonlySet<string>,
+  existingProject?: RustProject
+): Promise<RustProjectScanResult> {
+  const projectResult =
+    existingProject === undefined
+      ? await new ProjectScanner().scan({ workspacePath: projectPath, includeNonShippedSources: true })
+      : { project: existingProject, warnings: [] };
   const project = filterRustProject(projectResult.project, files);
-  const scanOptions = { workspacePath: projectPath, project };
-  const [unsafeResult, dependencyResult] = await Promise.all([
+  // The diff already names the files. A change the author made to a test,
+  // benchmark, or example target is still their change, so current-diff review
+  // does not apply the shipped-target filter that broad audits use.
+  const scanOptions = { workspacePath: projectPath, project, includeNonShippedSources: true };
+  const [unsafeResult, dependencyResult, sourceRiskResult] = await Promise.all([
     new UnsafeScanner().scan(scanOptions),
-    new DependencyScanner().scan(scanOptions)
+    new DependencyScanner().scan(scanOptions),
+    new SourceRiskScanner().scan(scanOptions)
   ]);
   const suppressedFindings = [
     ...(unsafeResult.suppressedFindings ?? []),
-    ...(dependencyResult.suppressedFindings ?? [])
+    ...(dependencyResult.suppressedFindings ?? []),
+    ...(sourceRiskResult.suppressedFindings ?? [])
   ];
 
   return {
     project,
-    findings: sortFindings(dedupeFindings([...unsafeResult.findings, ...dependencyResult.findings])),
-    warnings: [...projectResult.warnings, ...unsafeResult.warnings, ...dependencyResult.warnings],
+    findings: sortFindings(
+      dedupeFindings([...unsafeResult.findings, ...dependencyResult.findings, ...sourceRiskResult.findings])
+    ),
+    warnings: [
+      ...projectResult.warnings,
+      ...unsafeResult.warnings,
+      ...dependencyResult.warnings,
+      ...sourceRiskResult.warnings
+    ],
     suppressedCount: countActiveSuppressions(suppressedFindings),
     expiredSuppressionCount: countExpiredSuppressions(suppressedFindings),
     invalidSuppressionCount: countInvalidSuppressions(suppressedFindings),
-    suppressedFindings
+    suppressedFindings,
+    scanCoverage: project.sourceReader.coverage()
   };
 }
 
-function emptyRustProjectScan(projectPath: string): RustProjectScanResult {
+function emptyRustProjectScan(projectPath: string, sourceReader = new SafeSourceReader(projectPath)): RustProjectScanResult {
   return {
     project: {
       workspacePath: projectPath,
       isRustProject: true,
       cargoTomlFiles: [],
       cargoLockFiles: [],
+      cargoConfigFiles: [],
       buildScripts: [],
       rustSourceFiles: [],
-      workspaceManifests: []
+      rustTargetSummary: { shipped: 0, buildScript: 0, development: 0, unreferenced: 0 },
+      workspaceManifests: [],
+      discoveryWarnings: [],
+      sourceReader,
+      scanCoverage: sourceReader.coverage()
     },
     findings: [],
     warnings: []
@@ -2031,16 +2097,140 @@ function filterRustProject(project: RustProject, files: ReadonlySet<string>): Ru
     ...project,
     cargoTomlFiles: project.cargoTomlFiles.filter((file) => files.has(file.file)),
     cargoLockFiles: project.cargoLockFiles.filter((file) => files.has(file.file)),
+    cargoConfigFiles: project.cargoConfigFiles.filter((file) => files.has(file.file)),
     buildScripts: project.buildScripts.filter((file) => files.has(file.file)),
     rustSourceFiles: project.rustSourceFiles.filter((file) => files.has(file.file)),
     workspaceManifests: project.workspaceManifests.filter((file) => files.has(file.file))
   };
 }
 
+/**
+ * Refuses a diff whose paths this platform cannot address unambiguously.
+ *
+ * Resolving such a path against the working tree would read some other file
+ * and produce a review of code the diff never touched. Failing the whole call
+ * is the only honest outcome: a partial review here could still report `pass`.
+ */
+function requireAddressableDiffPaths(diff: ParsedGitDiff): void {
+  const unsupported = [...new Set(diff.files.map((file) => file.filePath))]
+    .filter((file) => !isPlatformAddressableGitPath(file))
+    .sort((left, right) => left.localeCompare(right));
+
+  if (unsupported.length === 0) return;
+
+  throw new McpToolInputError(
+    "UNSUPPORTED_GIT_PATH",
+    `The diff contains path(s) this platform cannot address unambiguously: ${unsupported.join(", ")}. Review was not performed; rename the file(s) or run the review on a platform that can represent them.`
+  );
+}
+
 function affectedFilePaths(diff: ParsedGitDiff): string[] {
   return [...new Set(diff.files.map((file) => normalizeFindingFile(file.filePath)).filter((file) => file.length > 0))].sort(
     (left, right) => left.localeCompare(right)
   );
+}
+
+function currentScannableDiffFiles(diff: ParsedGitDiff): string[] {
+  return [
+    ...new Set(
+      diff.files
+        .filter((file) => file.newPath !== undefined)
+        .map((file) => normalizeFindingFile(file.filePath))
+        .filter((file) => scanInputTypeForPath(file) !== undefined)
+    )
+  ].sort((left, right) => left.localeCompare(right));
+}
+
+function markDiffCoverage(project: RustProject, diffFiles: readonly GitDiffFile[]): void {
+  const discoveredFiles = new Set([
+    ...project.cargoTomlFiles,
+    ...project.cargoLockFiles,
+    ...project.cargoConfigFiles,
+    ...project.buildScripts,
+    ...project.rustSourceFiles
+  ].map((file) => file.file));
+
+  for (const diffFile of diffFiles) {
+    const file = normalizeFindingFile(diffFile.filePath);
+    const inputType = scanInputTypeForPath(file);
+    if (inputType === undefined) continue;
+
+    if (diffFile.newPath === undefined) {
+      project.sourceReader.recordNotApplicable(file, inputType, "diff_selection", "Deleted diff inputs do not require a current-file scan.");
+      continue;
+    }
+
+    const existingCoverage = project.sourceReader.coverage().entries.find((entry) => entry.file === file);
+    if (existingCoverage !== undefined) {
+      project.sourceReader.markRelevantToDiff(file);
+      continue;
+    }
+
+    if (!discoveredFiles.has(file)) {
+      project.sourceReader.recordIncomplete(
+        file,
+        inputType,
+        "diff_selection",
+        "missing_current_input",
+        "Current changed Rust/Cargo input was not discovered for scanning.",
+        true
+      );
+      continue;
+    }
+
+    project.sourceReader.recordIncomplete(
+      file,
+      inputType,
+      "diff_selection",
+      "missing_current_input",
+      "Discovered changed input did not produce a bounded-read coverage record.",
+      true
+    );
+  }
+}
+
+function scanInputTypeForPath(file: string): ScanInputType | undefined {
+  if (isBuildScriptPath(file)) return "build_script";
+  if (isCargoTomlPath(file)) return "cargo_toml";
+  if (isCargoLockPath(file)) return "cargo_lock";
+  if (isCargoConfigPath(file)) return "cargo_config";
+  if (isRustSourcePath(file)) return "rust";
+  return undefined;
+}
+
+function incompleteDiffCoverage(coverage: ScanCoverage): ScanCoverageEntry[] {
+  return coverage.entries.filter((entry) => entry.relevantToDiff === true && entry.status === "incomplete");
+}
+
+function scanCoverageWarnings(coverage: ScanCoverage | undefined): string[] {
+  if (coverage === undefined) return [];
+  return coverage.entries
+    .filter((entry) => entry.status === "incomplete")
+    .map((entry) => `Scan coverage incomplete: ${entry.file} (${entry.stage}/${entry.reason ?? "incomplete"}) — ${entry.message}`);
+}
+
+function renderScanCoverageMarkdown(coverage: ScanCoverage): string {
+  const lines = [
+    "## Scan Coverage",
+    "",
+    `- Complete: ${coverage.complete ? "Yes" : "No"}`,
+    `- Incomplete inputs: ${coverage.entries.filter((entry) => entry.status === "incomplete").length}`,
+    ""
+  ];
+
+  if (coverage.entries.length === 0) {
+    lines.push("No Rust/Cargo input required reading for this request.");
+  } else {
+    for (const entry of coverage.entries) {
+      lines.push(
+        `- ${entry.status}: \`${entry.file}\` (${entry.inputType}/${entry.stage}${entry.reason === undefined ? "" : `/${entry.reason}`})${
+          entry.relevantToDiff === true ? " [current diff]" : ""
+        } — ${entry.message}`
+      );
+    }
+  }
+
+  return formatMarkdown(lines);
 }
 
 function enrichFindingsWithDiff(
@@ -2472,8 +2662,14 @@ function normalizeOptionalGitRef(value: string | undefined, fieldName: string): 
   return trimmed;
 }
 
+/**
+ * Scanner findings and Git diff paths both use `/` separators already, so a
+ * backslash here belongs to a file name. Rewriting it would alias two distinct
+ * files onto one key and merge their findings and coverage; see
+ * `normalizeGitDiffPath`.
+ */
 function normalizeFindingFile(file: string): string {
-  const normalized = posix.normalize(file.trim().replaceAll("\\", "/"));
+  const normalized = posix.normalize(file.trim());
 
   if (
     normalized === "." ||

@@ -1,7 +1,14 @@
 import { join } from "node:path";
 import type { Confidence, Finding, Severity } from "../reports/schemas.js";
-import { readTextLines } from "./scannerUtils.js";
-import { isGlobalIgnoreToken, isSuppressionExpired, parseSuppressionDirective, type ParsedSuppressionDirective } from "./suppressions.js";
+import { SafeSourceReader } from "./scannerUtils.js";
+import { maskRustSource } from "./rustLexer.js";
+import {
+  isGlobalIgnoreToken,
+  isSuppressionExpired,
+  parseSuppressionDirective,
+  suppressionMarker,
+  type ParsedSuppressionDirective
+} from "./suppressions.js";
 import type { ScannerResult, SuppressedFinding } from "./types.js";
 
 const severityRank: Record<Severity, number> = {
@@ -22,25 +29,33 @@ export async function finalizeScannerResult(
   workspacePath: string,
   findings: readonly Finding[],
   warnings: readonly string[] = [],
-  options: { includeSuppressed?: boolean } = {}
+  options: { includeSuppressed?: boolean; sourceReader?: SafeSourceReader } = {}
 ): Promise<ScannerResult> {
   const uniqueFindings = dedupeFindings(findings);
-  const { findings: unsuppressedFindings, suppressedFindings } = await applySuppressions(workspacePath, uniqueFindings);
+  const sourceReader = options.sourceReader ?? new SafeSourceReader(workspacePath);
+  const { findings: unsuppressedFindings, suppressedFindings } = await applySuppressions(workspacePath, uniqueFindings, sourceReader);
   const suppressedCount = countActiveSuppressions(suppressedFindings);
   const expiredSuppressionCount = countExpiredSuppressions(suppressedFindings);
   const invalidSuppressionCount = countInvalidSuppressions(suppressedFindings);
+  const deprecatedMarkerCount = countDeprecatedMarkerSuppressions(suppressedFindings);
   const finalWarnings = [...warnings];
 
   if (suppressedCount > 0) {
-    finalWarnings.push(`${suppressedCount} finding(s) suppressed by rustsec-auditor inline directives.`);
+    finalWarnings.push(`${suppressedCount} finding(s) suppressed by inline accepted-risk directives.`);
   }
 
   if (expiredSuppressionCount > 0) {
-    finalWarnings.push(`${expiredSuppressionCount} expired rustsec-auditor suppression directive(s) were ignored; findings are shown again.`);
+    finalWarnings.push(`${expiredSuppressionCount} expired accepted-risk suppression directive(s) were ignored; findings are shown again.`);
   }
 
   if (invalidSuppressionCount > 0) {
-    finalWarnings.push(`${invalidSuppressionCount} invalid rustsec-auditor suppression directive(s) were ignored; use an exact rule id and a '-- reason'.`);
+    finalWarnings.push(`${invalidSuppressionCount} invalid accepted-risk suppression directive(s) were ignored; use an exact rule id and a '-- reason'.`);
+  }
+
+  if (deprecatedMarkerCount > 0) {
+    finalWarnings.push(
+      `${deprecatedMarkerCount} suppression comment(s) use the deprecated 'rustsec-auditor:' marker; rename them to '${suppressionMarker}:'.`
+    );
   }
 
   return {
@@ -49,7 +64,8 @@ export async function finalizeScannerResult(
     suppressedCount,
     expiredSuppressionCount,
     invalidSuppressionCount,
-    suppressedFindings
+    suppressedFindings,
+    scanCoverage: sourceReader.coverage()
   };
 }
 
@@ -63,6 +79,10 @@ export function countExpiredSuppressions(suppressions: readonly SuppressedFindin
 
 export function countInvalidSuppressions(suppressions: readonly SuppressedFinding[]): number {
   return suppressions.filter((suppression) => !suppression.isValid).length;
+}
+
+export function countDeprecatedMarkerSuppressions(suppressions: readonly SuppressedFinding[]): number {
+  return suppressions.filter((suppression) => suppression.usesDeprecatedMarker === true).length;
 }
 
 export function dedupeFindings(findings: readonly Finding[]): Finding[] {
@@ -96,9 +116,10 @@ export function sortFindings(findings: readonly Finding[]): Finding[] {
 
 async function applySuppressions(
   workspacePath: string,
-  findings: readonly Finding[]
+  findings: readonly Finding[],
+  sourceReader: SafeSourceReader
 ): Promise<{ findings: Finding[]; suppressedFindings: SuppressedFinding[] }> {
-  const lineCache = new Map<string, Promise<string[]>>();
+  const commentCache = new Map<string, Promise<readonly string[] | undefined>>();
   const unsuppressed: Finding[] = [];
   const suppressedFindings: SuppressedFinding[] = [];
 
@@ -109,8 +130,12 @@ async function applySuppressions(
       continue;
     }
 
-    const lines = await cachedLines(workspacePath, finding.file, lineCache);
-    const suppression = findSuppression(lines, startLine, finding);
+    const commentLines = await cachedCommentLines(workspacePath, finding.file, commentCache, sourceReader);
+    if (commentLines === undefined) {
+      unsuppressed.push(finding);
+      continue;
+    }
+    const suppression = findSuppression(commentLines, startLine, finding);
 
     if (suppression === undefined) {
       unsuppressed.push(finding);
@@ -127,16 +152,28 @@ async function applySuppressions(
   return { findings: unsuppressed, suppressedFindings };
 }
 
-async function cachedLines(
+/**
+ * Suppression lookup needs the comment-only view of a source file. Both the
+ * read and the lexing are cached per file.
+ *
+ * Lexing per finding instead of per file makes a scan quadratic in the size of
+ * a single file: a 274 KiB file holding 6,000 findings was lexed 6,000 times
+ * and took 69 seconds. The per-file size cap does not bound that, because the
+ * cost is findings x lines rather than bytes.
+ */
+async function cachedCommentLines(
   workspacePath: string,
   file: string,
-  lineCache: Map<string, Promise<string[]>>
-): Promise<string[]> {
-  const cached = lineCache.get(file);
+  commentCache: Map<string, Promise<readonly string[] | undefined>>,
+  sourceReader: SafeSourceReader
+): Promise<readonly string[] | undefined> {
+  const cached = commentCache.get(file);
   if (cached !== undefined) return await cached;
 
-  const next = readTextLines(join(workspacePath, file)).catch(() => []);
-  lineCache.set(file, next);
+  const next = sourceReader
+    .readTextLines(join(workspacePath, file), file, "rust", "suppression")
+    .then((lines) => (lines === undefined ? undefined : maskRustSource(lines).commentsOnly));
+  commentCache.set(file, next);
   return await next;
 }
 
@@ -187,6 +224,7 @@ function createSuppressionMatch(
     rawComment: suppression.rawComment
   };
 
+  if (suppression.usesDeprecatedMarker) record.usesDeprecatedMarker = true;
   if (suppression.owner !== undefined) record.owner = suppression.owner;
   if (suppression.ticket !== undefined) record.ticket = suppression.ticket;
   if (suppression.until !== undefined) record.until = suppression.until;

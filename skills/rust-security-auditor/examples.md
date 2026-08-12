@@ -248,7 +248,7 @@ Accepted / suppressed risks:
 
 Suggested Codex prompts:
 - Please review RSA-... at file:line inside function name. First explain the invariant, then apply the smallest safe code change if the finding is valid.
-- If this risk is intentional, add a rustsec-auditor suppression comment with a clear reason, owner, and ticket.
+- If this risk is intentional, add a accepted-risk suppression comment with a clear reason, owner, and ticket.
 
 Commit recommendation:
 - Do not commit yet. Review the expired/invalid suppression entries and either fix the code or update the accepted-risk record deliberately.

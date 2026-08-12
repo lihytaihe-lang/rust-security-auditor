@@ -24,7 +24,7 @@ Map these user entries to MCP tools:
 | `check this Rust project before release` | `rust_audit_project` | Pre-release local project scan. |
 | `list accepted risks` | `rust_list_accepted_risks` | Inventory accepted-risk suppression comments without running the full scanner. |
 | `show suppressed risks` | `rust_list_accepted_risks` | Show active accepted risks and optionally expired or invalid suppressions. |
-| `check expired suppressions` | `rust_list_accepted_risks` | Review expired `rustsec-auditor` suppressions. |
+| `check expired suppressions` | `rust_list_accepted_risks` | Review expired `rust-security-auditor` suppressions. |
 | `review accepted risk inventory before release` | `rust_list_accepted_risks` | Pre-release accepted-risk inventory and cleanup check. |
 
 Always pass the current local Rust project directory as `projectPath` unless the user provides a different local path. Prefer `outputFormat: "json"` when Codex will summarize and reason over the result; use `outputFormat: "markdown"` when the user explicitly wants the generated report text. When generating Markdown, use `pathMode: "relative"` by default.
@@ -68,7 +68,7 @@ Call `rust_audit_project` when the user asks for a full local project scan, proj
 
 In compact Markdown, treat `rust_audit_project` as a broad project summary, not a 1:1 finding dump: report the risk level, counts, top 5 findings, grouped categories/rule IDs, low-priority workspace path dependency trust-boundary groups, high-priority areas, and suggested next audits (`rust_audit_unsafe`, `rust_audit_dependencies`, `rust_review_current_diff`, `rust_list_accepted_risks`).
 
-Call `rust_list_accepted_risks` when the user asks to list accepted risks, show suppressed risks, check expired suppressions, clean up invalid suppressions, or review the accepted risk inventory before release. This tool only scans Rust source files for `rustsec-auditor` suppression comments; it does not run the full scanner and does not modify source code. Use `includeExpired: true` when the user wants expired suppressions, `includeInvalid: true` when the user wants invalid suppressions, and `outputFormat: "markdown"` when the user asks for the inventory report.
+Call `rust_list_accepted_risks` when the user asks to list accepted risks, show suppressed risks, check expired suppressions, clean up invalid suppressions, or review the accepted risk inventory before release. This tool only scans Rust source files for `rust-security-auditor` suppression comments; it does not run the full scanner and does not modify source code. Use `includeExpired: true` when the user wants expired suppressions, `includeInvalid: true` when the user wants invalid suppressions, and `outputFormat: "markdown"` when the user asks for the inventory report.
 
 ## Explaining Findings
 
@@ -130,10 +130,10 @@ If a finding is accepted as intentional and reviewed, suggest adding a narrow in
 Supported suppression comments:
 
 ```rust
-// rustsec-auditor: ignore RULE_ID -- reason
-// rustsec-auditor: ignore RULE_ID until=YYYY-MM-DD -- reason
-// rustsec-auditor: ignore RULE_ID owner=@name -- reason
-// rustsec-auditor: ignore RULE_ID ticket=SEC-123 -- reason
+// rust-security-auditor: ignore RULE_ID -- reason
+// rust-security-auditor: ignore RULE_ID until=YYYY-MM-DD -- reason
+// rust-security-auditor: ignore RULE_ID owner=@name -- reason
+// rust-security-auditor: ignore RULE_ID ticket=SEC-123 -- reason
 ```
 
 Rules for explaining suppression:
@@ -161,7 +161,7 @@ Please review RSA-... at file:line inside function name. First explain the safet
 ```
 
 ```text
-If this risk is intentional, add a rustsec-auditor suppression comment with a clear reason, owner, and ticket.
+If this risk is intentional, add a accepted-risk suppression comment with a clear reason, owner, and ticket.
 ```
 
 ## Do Not Do

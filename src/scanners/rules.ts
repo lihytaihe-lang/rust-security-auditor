@@ -1,5 +1,8 @@
 import type { Category, Confidence, Severity } from "../reports/schemas.js";
 
+/** MCP tool placement is independent from a finding's vulnerability category. */
+export type ToolScope = "project" | "unsafe" | "dependency";
+
 export interface RuleMetadata {
   ruleId: string;
   title: string;
@@ -164,6 +167,96 @@ export const ruleMetadata = {
       "Prove single ownership transfer, pair the allocation and deallocation strategy, and avoid repeated from_raw conversions.",
     suggestedTests: ["Test ownership transfer and drop paths around the raw pointer boundary."]
   },
+  "RSA-UNSAFE-GET-UNCHECKED": {
+    ruleId: "RSA-UNSAFE-GET-UNCHECKED",
+    title: "get_unchecked skips bounds checking",
+    category: "unsafe",
+    severity: "medium",
+    confidence: "high",
+    description: "Detects get_unchecked or get_unchecked_mut indexing.",
+    whyItMatters:
+      "get_unchecked removes the bounds check that normally turns an indexing mistake into a panic instead of memory corruption.",
+    riskScenario:
+      "An attacker-influenced or off-by-one index reads or writes outside the allocation and corrupts adjacent memory.",
+    remediation:
+      "Prove the index is in bounds at every call site, or use checked indexing and `get` until profiling shows the bounds check matters.",
+    suggestedTests: ["Cover empty, single-element, and maximum-index inputs for the indexed collection."]
+  },
+  "RSA-UNSAFE-UNCHECKED-CALL": {
+    ruleId: "RSA-UNSAFE-UNCHECKED-CALL",
+    title: "Unchecked constructor or accessor skips a validity check",
+    category: "unsafe",
+    severity: "medium",
+    confidence: "high",
+    description: "Detects *_unchecked calls such as from_utf8_unchecked, unwrap_unchecked, or new_unchecked.",
+    whyItMatters:
+      "An *_unchecked API moves a validity precondition from the library to the caller; violating it is immediate undefined behavior.",
+    riskScenario:
+      "Untrusted bytes reach from_utf8_unchecked, or an empty value reaches unwrap_unchecked, and later code observes an invalid value.",
+    remediation:
+      "Validate the precondition before the call, or use the checked variant and handle the error path explicitly.",
+    suggestedTests: ["Feed invalid or boundary inputs through the checked variant to confirm the precondition really holds."]
+  },
+  "RSA-UNSAFE-STATIC-MUT": {
+    ruleId: "RSA-UNSAFE-STATIC-MUT",
+    title: "static mut allows unsynchronized shared mutation",
+    category: "concurrency",
+    severity: "high",
+    confidence: "high",
+    description: "Detects a static mut declaration.",
+    whyItMatters:
+      "Every reference to a static mut can alias mutable global state without synchronization, which is why references to it are denied by default in the 2024 edition.",
+    riskScenario:
+      "Two threads, or a reentrant call, mutate the same global concurrently and produce a data race with undefined behavior.",
+    remediation:
+      "Replace static mut with an atomic, a Mutex/RwLock, OnceLock, or thread-local state, and keep any remaining raw access behind addr_of_mut!.",
+    suggestedTests: ["Exercise concurrent access to the global from multiple threads under a race detector."]
+  },
+  "RSA-UNSAFE-RAW-PTR-ACCESS": {
+    ruleId: "RSA-UNSAFE-RAW-PTR-ACCESS",
+    title: "Raw pointer read/write/copy requires validity review",
+    category: "unsafe",
+    severity: "medium",
+    confidence: "high",
+    description: "Detects copy_nonoverlapping, ptr::copy, ptr::read/write, write_bytes, or volatile access.",
+    whyItMatters:
+      "These primitives assume the pointers are non-null, aligned, in-bounds, correctly initialized, and non-overlapping when required.",
+    riskScenario:
+      "A wrong length, an unaligned pointer, or overlapping ranges corrupt memory or expose adjacent heap contents.",
+    remediation:
+      "Validate alignment, bounds, and overlap before the call, prefer safe slice APIs such as copy_from_slice, and keep the unsafe region minimal.",
+    suggestedTests: ["Cover zero-length, maximum-length, unaligned, and overlapping-range cases."]
+  },
+  "RSA-FFI-CSTR-FROM-PTR": {
+    ruleId: "RSA-FFI-CSTR-FROM-PTR",
+    title: "C string conversion trusts a foreign pointer",
+    category: "ffi",
+    severity: "medium",
+    confidence: "high",
+    description: "Detects CStr::from_ptr or CString::from_raw.",
+    whyItMatters:
+      "These conversions assume a non-null pointer, a valid NUL terminator, a lifetime that outlives the borrow, and for from_raw a matching allocator and single ownership transfer.",
+    riskScenario:
+      "A foreign caller passes a null, unterminated, or already-freed pointer and the conversion reads out of bounds or double frees.",
+    remediation:
+      "Reject null pointers explicitly, document who owns the buffer and how long it lives, and bound the lifetime of the resulting borrow.",
+    suggestedTests: ["Test null, empty, unterminated, and already-freed pointer inputs at the boundary."]
+  },
+  "RSA-EXEC-COMMAND": {
+    ruleId: "RSA-EXEC-COMMAND",
+    title: "Runtime code spawns an external process",
+    category: "command_execution",
+    severity: "medium",
+    confidence: "high",
+    description: "Detects std::process::Command usage outside build scripts.",
+    whyItMatters:
+      "A spawned process runs with the application's privileges, resolves its program through PATH by default, and inherits the current environment.",
+    riskScenario:
+      "Untrusted input reaches the program name or arguments, or a shell is invoked with an interpolated string, and the attacker executes arbitrary commands.",
+    remediation:
+      "Use absolute or allowlisted program paths, pass arguments as separate values instead of a shell string, and never interpolate untrusted input into `sh -c`.",
+    suggestedTests: ["Test argument values containing shell metacharacters, spaces, and path traversal sequences."]
+  },
   "RSA-DEP-GIT": {
     ruleId: "RSA-DEP-GIT",
     title: "Git dependency requires supply-chain review",
@@ -268,13 +361,103 @@ export const ruleMetadata = {
     remediation:
       "Use absolute tool paths or allowlisted commands, validate arguments, and avoid passing untrusted environment values to the process.",
     suggestedTests: ["Test the build script with a clean PATH and unexpected environment values to ensure command resolution is controlled."]
+  },
+  "RSA-DEP-VERSION-UNBOUNDED": {
+    ruleId: "RSA-DEP-VERSION-UNBOUNDED",
+    title: "Dependency requirement has no upper bound",
+    category: "supply_chain",
+    severity: "medium",
+    confidence: "high",
+    description: "Detects wildcard or open-ended dependency version requirements in Cargo.toml.",
+    whyItMatters:
+      "A wildcard or `>=`-only requirement accepts any future release, so the code that ships can change without any local edit or review.",
+    riskScenario:
+      "A compromised or breaking upstream release is pulled into a fresh build or CI run that regenerates the lockfile, and unreviewed code reaches production.",
+    remediation:
+      "Use a caret requirement pinned to a reviewed major/minor version, commit Cargo.lock for binaries, and upgrade deliberately.",
+    suggestedTests: ["Build from a clean checkout in CI and fail when Cargo.lock changes unexpectedly."]
+  },
+  "RSA-CARGO-SOURCE-REPLACEMENT": {
+    ruleId: "RSA-CARGO-SOURCE-REPLACEMENT",
+    title: "Cargo config replaces a registry source",
+    category: "supply_chain",
+    severity: "high",
+    confidence: "high",
+    description: "Detects source replacement (`replace-with`) in .cargo/config.toml.",
+    whyItMatters:
+      "Source replacement silently redirects where every crate is fetched from, including crates.io, for anyone who builds in this directory.",
+    riskScenario:
+      "A mirror or vendored source serves modified crates, and the build produces binaries containing code that was never reviewed on crates.io.",
+    remediation:
+      "Confirm the replacement source is intended and trusted, document who controls it, and prefer vendoring with checked-in checksums.",
+    suggestedTests: ["Verify in CI that the resolved source of each dependency matches the expected registry."]
+  },
+  "RSA-CARGO-RUNNER": {
+    ruleId: "RSA-CARGO-RUNNER",
+    title: "Cargo config sets a custom target runner",
+    category: "command_execution",
+    severity: "high",
+    confidence: "high",
+    description: "Detects a `runner` entry in .cargo/config.toml.",
+    whyItMatters:
+      "A target runner is the command Cargo executes for `cargo run` and `cargo test`, so it runs arbitrary code on the developer or CI machine.",
+    riskScenario:
+      "A repository ships a config whose runner executes an attacker-controlled binary the first time a contributor runs the test suite.",
+    remediation:
+      "Review the runner command and its arguments, keep it inside the repository, and treat changes to .cargo/config.toml as security-relevant.",
+    suggestedTests: ["Run the test suite in an isolated container the first time an unfamiliar .cargo/config.toml is introduced."]
   }
 } as const satisfies Record<string, RuleMetadata>;
 
 export type RuleId = keyof typeof ruleMetadata;
 
-export const allRules = Object.values(ruleMetadata);
+/**
+ * One explicit registry entry per rule. Do not infer this from rule-id prefixes
+ * or finding categories: both are report metadata, not an API boundary.
+ */
+export const toolScopesByRule = {
+  "RSA-UNSAFE-BLOCK": ["project", "unsafe"],
+  "RSA-UNSAFE-FN": ["project", "unsafe"],
+  "RSA-UNSAFE-IMPL-SEND": ["project", "unsafe"],
+  "RSA-UNSAFE-IMPL-SYNC": ["project", "unsafe"],
+  "RSA-FFI-EXTERN-C": ["project", "unsafe"],
+  "RSA-UNSAFE-TRANSMUTE": ["project", "unsafe"],
+  "RSA-UNSAFE-MAYBEUNINIT": ["project", "unsafe"],
+  "RSA-UNSAFE-FROM-RAW-PARTS": ["project", "unsafe"],
+  "RSA-UNSAFE-SET-LEN": ["project", "unsafe"],
+  "RSA-UNSAFE-BOX-FROM-RAW": ["project", "unsafe"],
+  "RSA-UNSAFE-GET-UNCHECKED": ["project", "unsafe"],
+  "RSA-UNSAFE-UNCHECKED-CALL": ["project", "unsafe"],
+  "RSA-UNSAFE-STATIC-MUT": ["project", "unsafe"],
+  "RSA-UNSAFE-RAW-PTR-ACCESS": ["project", "unsafe"],
+  "RSA-FFI-CSTR-FROM-PTR": ["project", "unsafe"],
+  "RSA-EXEC-COMMAND": ["project"],
+  "RSA-DEP-GIT": ["project", "dependency"],
+  "RSA-DEP-PATH": ["project", "dependency"],
+  "RSA-DEP-PROC-MACRO": ["project", "dependency"],
+  "RSA-DEP-BUILD-DEPENDENCIES": ["project", "dependency"],
+  "RSA-DEP-LOCK-GIT": ["project", "dependency"],
+  "RSA-BUILD-SCRIPT": ["project", "dependency"],
+  "RSA-BUILD-COMMAND": ["project", "dependency"],
+  "RSA-DEP-VERSION-UNBOUNDED": ["project", "dependency"],
+  "RSA-CARGO-SOURCE-REPLACEMENT": ["project", "dependency"],
+  "RSA-CARGO-RUNNER": ["project", "dependency"]
+} as const satisfies Record<RuleId, readonly ToolScope[]>;
 
-export function getRuleMetadata(ruleId: RuleId): RuleMetadata {
-  return ruleMetadata[ruleId];
+export interface ScopedRuleMetadata extends RuleMetadata {
+  toolScopes: readonly ToolScope[];
+}
+
+export const allRules: readonly ScopedRuleMetadata[] = Object.values(ruleMetadata).map((rule) => ({
+  ...rule,
+  toolScopes: toolScopesByRule[rule.ruleId as RuleId]
+}));
+
+export function getRuleMetadata(ruleId: RuleId): ScopedRuleMetadata {
+  return { ...ruleMetadata[ruleId], toolScopes: toolScopesByRule[ruleId] };
+}
+
+export function ruleHasToolScope(ruleId: string, toolScope: ToolScope): boolean {
+  const scopes: readonly ToolScope[] | undefined = toolScopesByRule[ruleId as RuleId];
+  return scopes?.includes(toolScope) ?? false;
 }

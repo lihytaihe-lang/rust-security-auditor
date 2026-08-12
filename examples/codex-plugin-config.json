@@ -1,6 +1,6 @@
 {
-  "name": "rust-security-auditor-codex",
-  "description": "Example Codex Skill / MCP configuration for using the local Rust Security Auditor from a Codex project context.",
+  "name": "rust-security-auditor-codex-reference",
+  "description": "Configuration-reference metadata for using the local Rust Security Auditor from a Codex project context; it is not a Codex plugin manifest or host-support certification.",
   "skill": {
     "displayName": "Rust Security Auditor",
     "path": "skills/rust-security-auditor/SKILL.md",
@@ -18,12 +18,10 @@
       "@Rust Security Auditor review accepted risk inventory before release"
     ]
   },
-  "mcpServers": {
-    "rust-security-auditor": {
-      "command": "npm",
-      "args": ["--silent", "run", "mcp"],
-      "cwd": "/absolute/path/to/rust-security-auditor"
-    }
+  "codexMcpConfigurationReference": {
+    "file": "~/.codex/config.toml or .codex/config.toml in a trusted project",
+    "toml": "[mcp_servers.rust_security_auditor]\ncommand = \"node\"\nargs = [\"/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js\"]",
+    "status": "configuration-reference-only"
   },
   "tools": [
     {
@@ -32,7 +30,7 @@
         "review current diff",
         "check this Rust project before commit"
       ],
-      "recommendedUsage": "Use before commit, before PR, after Codex generated code, or after touching unsafe/dependencies/build.rs. Returns reviewDecision, suppressionSummary, and suggestedFixPrompt values without modifying code or adding suppressions.",
+      "recommendedUsage": "Use before commit, before PR, after agent-generated code, or after touching unsafe/dependencies/build.rs. Returns reviewDecision, suppressionSummary, and suggestedFixPrompt values without modifying code or adding suppressions.",
       "defaultArguments": {
         "projectPath": "/absolute/path/to/rust/project",
         "includePreExisting": false,
@@ -41,7 +39,9 @@
     },
     {
       "name": "rust_audit_unsafe",
-      "naturalLanguageEntries": ["audit unsafe"],
+      "naturalLanguageEntries": [
+        "audit unsafe"
+      ],
       "recommendedUsage": "Use for unsafe blocks, unsafe fn, FFI, raw pointers, MaybeUninit, transmute, raw-parts APIs, and unsafe Send/Sync review.",
       "defaultArguments": {
         "projectPath": "/absolute/path/to/rust/project",
@@ -51,7 +51,9 @@
     },
     {
       "name": "rust_audit_dependencies",
-      "naturalLanguageEntries": ["audit dependencies"],
+      "naturalLanguageEntries": [
+        "audit dependencies"
+      ],
       "recommendedUsage": "Use for Cargo.toml, Cargo.lock, build.rs, git/path dependencies, proc macros, and build dependencies.",
       "defaultArguments": {
         "projectPath": "/absolute/path/to/rust/project",
@@ -80,7 +82,7 @@
         "check expired suppressions",
         "review accepted risk inventory before release"
       ],
-      "recommendedUsage": "Use to inventory rustsec-auditor suppression comments before release or security re-review without running the full scanner or modifying code.",
+      "recommendedUsage": "Use to inventory accepted-risk suppression comments before release or security re-review without running the full scanner or modifying code.",
       "defaultArguments": {
         "projectPath": "/absolute/path/to/rust/project",
         "includeExpired": true,
@@ -90,7 +92,7 @@
     }
   ],
   "stdioNotes": [
-    "Use npm --silent run mcp. Plain npm run mcp can print npm lifecycle banners to stdout.",
+    "Build the local checkout with npm run build, then run node with the absolute dist/src/mcp/server.js path.",
     "MCP stdio stdout must contain only JSON-RPC protocol frames. Ordinary logs must not pollute stdout.",
     "The server scans local project paths passed by Codex. It does not require uploading code packages."
   ],
@@ -98,5 +100,12 @@
     "This is not a ChatGPT App configuration.",
     "This is not a SaaS upload flow.",
     "This is not a web UI."
-  ]
+  ],
+  "primaryLocalCheckout": {
+    "command": "node",
+    "args": [
+      "/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"
+    ],
+    "note": "Primary checkout configuration reference; use after npm ci and npm run build."
+  }
 }

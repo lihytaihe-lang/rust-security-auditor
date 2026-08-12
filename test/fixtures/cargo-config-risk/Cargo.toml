@@ -1,0 +1,17 @@
+[package]
+name = "cargo-config-risk"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wildcard_dep = "*"
+open_ended_dep = ">=1.2"
+pinned_dep = "1.4"
+bounded_dep = ">=1.0, <2.0"
+inline_wildcard = { version = "1.*", features = ["derive"] }
+
+[dependencies.explicit_table]
+version = "*"
+
+[dev-dependencies]
+test_only_dep = "0.3"

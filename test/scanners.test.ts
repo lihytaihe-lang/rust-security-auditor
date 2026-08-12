@@ -1,14 +1,19 @@
 import assert from "node:assert/strict";
-import { resolve } from "node:path";
+import { mkdir, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
 import { renderJsonReport, renderMarkdownReport, type Finding } from "../src/reports/index.js";
 import { dedupeFindings, sortFindings } from "../src/scanners/resultUtils.js";
 import {
   allRules,
+  collectWorkspaceFiles,
   DependencyScanner,
   ProjectScanner,
+  SafeSourceReader,
   UnsafeScanner,
   scanRustProject,
+  ruleHasToolScope,
   toRustAuditReportInput
 } from "../src/scanners/index.js";
 
@@ -31,7 +36,12 @@ describe("rule metadata", () => {
       assert.ok(rule.description.length > 0);
       assert.ok(rule.whyItMatters.length > 0);
       assert.ok(rule.remediation.length > 0);
+      assert.ok(rule.toolScopes.length > 0);
     }
+
+    assert.equal(ruleHasToolScope("RSA-CARGO-SOURCE-REPLACEMENT", "dependency"), true);
+    assert.equal(ruleHasToolScope("RSA-CARGO-RUNNER", "dependency"), true);
+    assert.equal(ruleHasToolScope("RSA-CARGO-RUNNER", "unsafe"), false);
   });
 });
 
@@ -54,6 +64,165 @@ describe("project scanner", () => {
     );
     assert.deepEqual(result.project.workspaceManifests[0]?.members, ["crates/local_dep"]);
     assert.ok(result.project.rustSourceFiles.some((file) => file.file === "src/lib.rs"));
+  });
+});
+
+describe("bounded source reader", () => {
+  it("caches content and enforces root, file-count, and concurrency boundaries", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rust-security-auditor-reader-"));
+    const outside = await mkdtemp(join(tmpdir(), "rust-security-auditor-reader-outside-"));
+
+    try {
+      await mkdir(join(root, "src"));
+      await writeFile(join(root, "src/a.rs"), "pub fn a() {}\n");
+      await writeFile(join(root, "src/b.rs"), "pub fn b() {}\n");
+      await writeFile(join(outside, "outside.rs"), "pub fn outside() {}\n");
+      const reader = new SafeSourceReader(root, { maxFiles: 2, maxConcurrency: 1 });
+
+      const [first, cached, second, escaped] = await Promise.all([
+        reader.readTextLines(join(root, "src/a.rs"), "src/a.rs", "rust", "unsafe_scan"),
+        reader.readTextLines(join(root, "src/a.rs"), "src/a.rs", "rust", "suppression"),
+        reader.readTextLines(join(root, "src/b.rs"), "src/b.rs", "rust", "source_risk_scan"),
+        reader.readTextLines(join(outside, "outside.rs"), "../outside.rs", "rust", "unsafe_scan")
+      ]);
+
+      assert.equal(first?.[0], "pub fn a() {}");
+      assert.deepEqual(cached, first);
+      assert.equal(second?.[0], "pub fn b() {}");
+      assert.equal(escaped, undefined);
+      assert.deepEqual(reader.readStats(), { openedFiles: 2, maxObservedConcurrency: 1 });
+      assert.ok(reader.coverage().entries.some((entry) => entry.reason === "outside_workspace"));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an in-root path when an ancestor is replaced by a symbolic link", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rust-security-auditor-reader-ancestor-"));
+    const outside = await mkdtemp(join(tmpdir(), "rust-security-auditor-reader-ancestor-outside-"));
+
+    try {
+      await mkdir(join(root, "src"));
+      await writeFile(join(root, "src/lib.rs"), "pub fn inside() {}\n");
+      await writeFile(join(outside, "lib.rs"), "outside-controlled-proof\n");
+      const reader = new SafeSourceReader(root);
+
+      await rename(join(root, "src"), join(root, "src-before-link"));
+      await symlink(outside, join(root, "src"));
+
+      const lines = await reader.readTextLines(join(root, "src/lib.rs"), "src/lib.rs", "rust", "unsafe_scan");
+
+      assert.equal(lines, undefined);
+      assert.ok(
+        reader.coverage().entries.some(
+          (entry) => entry.file === "src/lib.rs" && entry.status === "incomplete" && entry.reason === "symbolic_link"
+        )
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("does not recurse into an in-root directory symbolic link during discovery", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rust-security-auditor-discovery-link-"));
+    const outside = await mkdtemp(join(tmpdir(), "rust-security-auditor-discovery-link-outside-"));
+
+    try {
+      await writeFile(join(outside, "escaped.rs"), "pub fn escaped() {}\n");
+      await symlink(outside, join(root, "src"));
+      const reader = new SafeSourceReader(root);
+
+      const result = await collectWorkspaceFiles(root, {}, reader);
+
+      assert.equal(result.files.includes(join(root, "src", "escaped.rs")), false);
+      assert.ok(result.warnings.some((warning) => warning.includes("symbolic link")));
+      assert.ok(
+        reader.coverage().entries.some(
+          (entry) => entry.file === "src" && entry.status === "incomplete" && entry.reason === "symbolic_link"
+        )
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps prior relevant incomplete coverage after a later auxiliary read succeeds", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rust-security-auditor-reader-coverage-"));
+
+    try {
+      await mkdir(join(root, "src"));
+      await writeFile(join(root, "src/lib.rs"), "pub fn changed() {}\n");
+      const reader = new SafeSourceReader(root);
+      reader.recordIncomplete(
+        "src/lib.rs",
+        "rust",
+        "diff_selection",
+        "missing_current_input",
+        "Current changed Rust input was not discovered for scanning.",
+        true
+      );
+
+      const lines = await reader.readTextLines(join(root, "src/lib.rs"), "src/lib.rs", "rust", "rust_context");
+      const coverage = reader.coverage().entries.find((entry) => entry.file === "src/lib.rs");
+
+      assert.equal(lines?.[0], "pub fn changed() {}");
+      assert.deepEqual(coverage, {
+        status: "incomplete",
+        file: "src/lib.rs",
+        inputType: "rust",
+        stage: "diff_selection",
+        reason: "missing_current_input",
+        message: "Current changed Rust input was not discovered for scanning.",
+        relevantToDiff: true
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a requested project root that is replaced by a symbolic link", async () => {
+    const container = await mkdtemp(join(tmpdir(), "rust-security-auditor-reader-root-link-"));
+    const root = join(container, "project");
+    const outside = await mkdtemp(join(tmpdir(), "rust-security-auditor-reader-root-link-outside-"));
+
+    try {
+      await mkdir(join(root, "src"), { recursive: true });
+      await writeFile(join(root, "src/lib.rs"), "pub fn inside() {}\n");
+      await mkdir(join(outside, "src"));
+      await writeFile(join(outside, "src/lib.rs"), "outside-controlled-proof\n");
+      const reader = new SafeSourceReader(root);
+
+      await rename(root, join(container, "project-before-link"));
+      await symlink(outside, root);
+
+      const lines = await reader.readTextLines(join(root, "src/lib.rs"), "src/lib.rs", "rust", "unsafe_scan");
+
+      assert.equal(lines, undefined);
+      assert.ok(reader.coverage().entries.some((entry) => entry.reason === "symbolic_link"));
+    } finally {
+      await rm(container, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("enforces byte limits using the opened file metadata", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rust-security-auditor-reader-opened-size-"));
+
+    try {
+      await writeFile(join(root, "oversized.rs"), "x".repeat(32));
+      const reader = new SafeSourceReader(root, { maxFileBytes: 8, maxTotalBytes: 8 });
+
+      const lines = await reader.readTextLines(join(root, "oversized.rs"), "oversized.rs", "rust", "unsafe_scan");
+
+      assert.equal(lines, undefined);
+      assert.deepEqual(reader.readStats(), { openedFiles: 0, maxObservedConcurrency: 1 });
+      assert.ok(reader.coverage().entries.some((entry) => entry.reason === "file_too_large"));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 
@@ -147,8 +316,8 @@ describe("rust project scan", () => {
     assert.ok(activeSuppressions.some((suppression) => suppression.ticket === "SEC-123"));
     assert.ok(activeSuppressions.some((suppression) => suppression.until === "2999-12-31"));
     assert.ok(suppressedFindings.every((suppression) => suppression.rawComment.includes("rustsec-auditor: ignore")));
-    assert.match(result.warnings.join("\n"), /invalid rustsec-auditor suppression/);
-    assert.match(result.warnings.join("\n"), /expired rustsec-auditor suppression/);
+    assert.match(result.warnings.join("\n"), /invalid accepted-risk suppression/);
+    assert.match(result.warnings.join("\n"), /expired accepted-risk suppression/);
   });
 
   it("keeps the safe fixture much quieter than the vulnerable fixture", async () => {

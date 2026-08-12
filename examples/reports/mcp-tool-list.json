@@ -5,6 +5,7 @@
       "title": "Audit Rust project before release",
       "description": "Use before a release or when the user asks for a full-project Rust security health check. Scans an entire local Cargo project or workspace and returns security findings across unsafe/FFI, dependencies, build scripts, filesystem, input-boundary, secrets, panic/DoS, and manual-review categories.",
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
         "properties": {
           "projectPath": {
@@ -43,8 +44,7 @@
         },
         "required": [
           "projectPath"
-        ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -61,6 +61,7 @@
       "title": "Audit Rust unsafe and FFI",
       "description": "Use for specialized unsafe / FFI review, especially when code touches unsafe blocks, unsafe fn, raw pointers, MaybeUninit, transmute, from_raw_parts, set_len, Box::from_raw, extern \"C\", or unsafe Send/Sync impls. Returns only unsafe, raw-memory, concurrency unsafe impl, and FFI findings.",
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
         "properties": {
           "projectPath": {
@@ -99,8 +100,7 @@
         },
         "required": [
           "projectPath"
-        ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -117,6 +117,7 @@
       "title": "Audit Rust Cargo dependencies",
       "description": "Use for Cargo dependency and supply-chain review, especially when Cargo.toml, Cargo.lock, build.rs, build-dependencies, proc macros, git dependencies, or path dependencies change. Returns only Cargo, lockfile, build script, and build-time supply-chain findings.",
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
         "properties": {
           "projectPath": {
@@ -151,8 +152,7 @@
         },
         "required": [
           "projectPath"
-        ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -169,6 +169,7 @@
       "title": "Review current Rust diff before commit",
       "description": "Use before commit, before opening a PR, after Codex generated code, or after touching unsafe Rust, dependencies, or build.rs. Parses git diff hunks, scans only changed files in the local Cargo project or workspace, returns reviewDecision, suppressionSummary, and suggestedFixPrompt values, and never automatically modifies code or adds suppressions.",
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
         "properties": {
           "projectPath": {
@@ -225,8 +226,7 @@
         },
         "required": [
           "projectPath"
-        ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -241,8 +241,9 @@
     {
       "name": "rust_list_accepted_risks",
       "title": "List accepted Rust security risks",
-      "description": "Use before release, during security re-review, when checking whether rustsec-auditor suppressions have expired, or when cleaning up invalid suppression comments. Scans only Rust source files for rustsec-auditor suppression comments and returns an accepted-risk inventory without running the full scanner and without modifying code.",
+      "description": "Use before release, during security re-review, when checking whether accepted-risk suppressions have expired, or when cleaning up invalid suppression comments. Scans only Rust source files for accepted-risk suppression comments and returns an accepted-risk inventory without running the full scanner and without modifying code.",
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
         "properties": {
           "projectPath": {
@@ -252,11 +253,11 @@
           },
           "includeExpired": {
             "type": "boolean",
-            "description": "When true, include expired rustsec-auditor suppression comments in acceptedRisks and the Markdown report."
+            "description": "When true, include expired accepted-risk suppression comments in acceptedRisks and the Markdown report."
           },
           "includeInvalid": {
             "type": "boolean",
-            "description": "When true, include invalid rustsec-auditor suppression comments in acceptedRisks and the Markdown report."
+            "description": "When true, include invalid accepted-risk suppression comments in acceptedRisks and the Markdown report."
           },
           "outputFormat": {
             "type": "string",
@@ -280,8 +281,7 @@
           "includeExpired",
           "includeInvalid",
           "outputFormat"
-        ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,

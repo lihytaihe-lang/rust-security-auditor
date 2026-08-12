@@ -1,3 +1,11 @@
+/**
+ * Canonical inline marker. `rustsec-auditor:` is still accepted so existing
+ * suppression comments keep working, but it is deprecated: RustSec is an
+ * unrelated project, and the old marker reads as an affiliation with it.
+ */
+export const suppressionMarker = "rust-security-auditor";
+export const deprecatedSuppressionMarker = "rustsec-auditor";
+
 export interface ParsedSuppressionDirective {
   ruleId: string;
   reason: string;
@@ -6,14 +14,17 @@ export interface ParsedSuppressionDirective {
   until?: string;
   rawComment: string;
   invalidReasons: string[];
+  /** True when the comment used the deprecated `rustsec-auditor:` marker. */
+  usesDeprecatedMarker: boolean;
 }
 
 export function parseSuppressionDirective(line: string): ParsedSuppressionDirective | undefined {
-  const match = /rustsec-auditor:\s*ignore\s+(\S+)(.*)$/i.exec(line);
-  if (match === null || match[1] === undefined) return undefined;
+  const match = /(rust-security-auditor|rustsec-auditor):\s*ignore\s+(\S+)(.*)$/i.exec(line);
+  if (match === null || match[2] === undefined) return undefined;
 
-  const ruleId = match[1].trim();
-  const remainder = match[2]?.trim() ?? "";
+  const usesDeprecatedMarker = (match[1] ?? "").toLowerCase() === deprecatedSuppressionMarker;
+  const ruleId = match[2].trim();
+  const remainder = match[3]?.trim() ?? "";
   const delimiterIndex = remainder.indexOf("--");
   const metadataText = delimiterIndex === -1 ? remainder : remainder.slice(0, delimiterIndex).trim();
   const reason = delimiterIndex === -1 ? "" : remainder.slice(delimiterIndex + 2).trim();
@@ -25,7 +36,7 @@ export function parseSuppressionDirective(line: string): ParsedSuppressionDirect
   }
 
   if (isGlobalIgnoreToken(ruleId)) {
-    invalidReasons.push("Global rustsec-auditor ignore directives are not supported; suppress a specific rule id instead.");
+    invalidReasons.push("Global ignore directives are not supported; suppress a specific rule id instead.");
   } else if (!/^[A-Za-z0-9_-]+$/.test(ruleId)) {
     invalidReasons.push("Suppression rule id must be a concrete rule id.");
   }
@@ -69,6 +80,7 @@ export function parseSuppressionDirective(line: string): ParsedSuppressionDirect
     reason,
     rawComment: line.trim(),
     invalidReasons,
+    usesDeprecatedMarker,
     ...metadata
   };
 }
