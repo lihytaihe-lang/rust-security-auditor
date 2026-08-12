@@ -2,11 +2,21 @@
 
 **English** · [简体中文](README.zh-CN.md)
 
-A local-first Rust security review MCP server over stdio. It reviews Rust code for unsafe, FFI, and supply-chain risk — and tells your coding agent what to look at before you commit.
+A local-first security review server for Rust projects, spoken over MCP. It audits `unsafe` and FFI surface, Cargo supply-chain and build-time trust boundaries, and process execution — as a whole-project audit, or scoped to the change you are about to commit.
 
-It runs entirely on your machine, reads local Cargo projects, never modifies the target source tree, and exposes five read-only tools over stdio to Claude Code, Codex, Cursor, or any other MCP client.
+It runs entirely on your machine, reads local Cargo projects, never modifies the target source tree, and exposes five read-only tools to Claude Code, Codex, Cursor, or any other MCP client.
 
-Ask your agent to review what you just wrote, and you get back the part of the diff that carries risk — actual output, abridged:
+Agent-assisted development writes Rust faster than anyone reviews it. A generated module reaches for `get_unchecked` because it is faster, a generated `build.rs` shells out to a tool, a generated `Cargo.toml` pins a dependency to `*`. Each is a normal line of Rust that a compiler accepts. This finds them and tells you what each one obliges you to prove.
+
+## Two ways to use it
+
+**Audit a whole project** — when you take over a crate, evaluate a dependency, or prepare a release. `rust_audit_project` runs every rule across the code Cargo builds; `rust_audit_unsafe` and `rust_audit_dependencies` narrow that to one surface. You get the full inventory: where the unsafe is, what each site obliges, which trust boundaries exist at build time.
+
+**Review the current change** — before every commit, and especially right after an agent generates code. `rust_review_current_diff` reads `git diff` and separates what this change introduced from what was already there. On a crate with hundreds of pre-existing findings, that is the difference between a list you ignore and a list you act on.
+
+Both work on the same rule set. The whole-project audit tells you where you stand; the diff review keeps you from sliding backwards.
+
+Here is the second one on a real change — actual output, abridged:
 
 ```markdown
 # Rust Security Review: Current Diff
@@ -35,17 +45,62 @@ NEEDS ATTENTION
 
 Pre-existing unsafe code elsewhere in the file is classified separately and does not look like a new blocker.
 
-## Why it works this way
+## What keeps the output usable
 
-Most scanners answer "what is wrong with this codebase". On a crate that uses `unsafe` on purpose, that answer is a list you scroll past once and never open again. This one is built around three decisions instead.
+A security tool that reports everything gets read once. Three design decisions keep the output at a size you act on, each with the measurement behind it.
 
-**It reviews the change, not the codebase.** [`tokio-rs/bytes`](https://github.com/tokio-rs/bytes) has 246 findings across the crate and 77 in `src/bytes.rs` alone. Add five lines with one `unsafe` block to that file and the review reports **one** introduced finding, plus one pre-existing finding that shares the same unsafe block because it is genuinely relevant — and hides the other 76. That is the number you can act on before a commit.
+**Only code Cargo builds is audited.** A default audit of [`BurntSushi/memchr`](https://github.com/BurntSushi/memchr) used to report 1,721 findings; 1,311 came from a single 1.6 MB benchmark *input* file that exists to be searched, not compiled. Files are classified by how Cargo reaches them, and a whole-project audit reads `src/` and `build.rs`. The count is 396, of which 374 are real crate source. Nothing is skipped silently — every report states what was excluded and why, and one flag brings it all back.
 
-**It only audits code Cargo builds.** A default audit of [`BurntSushi/memchr`](https://github.com/BurntSushi/memchr) used to report 1,721 findings; 1,311 of them came from a single 1.6 MB benchmark *input* file that exists to be searched, not compiled. Files are now classified by how Cargo reaches them, and broad audits read `src/` and `build.rs`. The count is 396, of which 374 are real crate source. Nothing is skipped silently — every report states what was excluded and why.
+**A diff review separates introduced from pre-existing.** [`tokio-rs/bytes`](https://github.com/tokio-rs/bytes) has 246 findings across the crate and 77 in `src/bytes.rs` alone. Add five lines with one `unsafe` block to that file and the review reports **one** introduced finding, plus one pre-existing finding that shares the same unsafe block because it is genuinely relevant — and hides the other 76.
 
 **It refuses to say "pass" when it could not look.** If a file in your diff was unreadable, too large, or outside the project root, the review says so and withholds the verdict rather than reporting a clean result over a partial scan. The same applies to a Git path this platform cannot address unambiguously: the call fails instead of reviewing whatever that path happens to hit.
 
 Everything runs on your machine. It reads local paths, never writes to your source tree, and makes no network requests.
+
+## What It Catches
+
+**Unsafe and FFI** — `RSA-UNSAFE-BLOCK`, `RSA-UNSAFE-FN`, `RSA-UNSAFE-IMPL-SEND`, `RSA-UNSAFE-IMPL-SYNC`, `RSA-FFI-EXTERN-C`, `RSA-FFI-CSTR-FROM-PTR`, `RSA-UNSAFE-TRANSMUTE`, `RSA-UNSAFE-MAYBEUNINIT`, `RSA-UNSAFE-FROM-RAW-PARTS`, `RSA-UNSAFE-SET-LEN`, `RSA-UNSAFE-BOX-FROM-RAW`, `RSA-UNSAFE-GET-UNCHECKED`, `RSA-UNSAFE-UNCHECKED-CALL`, `RSA-UNSAFE-STATIC-MUT`, `RSA-UNSAFE-RAW-PTR-ACCESS`
+
+**Supply chain and build** — `RSA-DEP-GIT`, `RSA-DEP-PATH`, `RSA-DEP-PROC-MACRO`, `RSA-DEP-BUILD-DEPENDENCIES`, `RSA-DEP-LOCK-GIT`, `RSA-DEP-VERSION-UNBOUNDED`, `RSA-BUILD-SCRIPT`, `RSA-BUILD-COMMAND`, `RSA-CARGO-SOURCE-REPLACEMENT`, `RSA-CARGO-RUNNER`
+
+**Runtime execution** — `RSA-EXEC-COMMAND`
+
+Every finding carries a rule id, file and line, evidence, why it matters, a concrete risk scenario, and a suggested fix. Findings are deduplicated by `file + startLine + ruleId` and sorted by severity, then confidence, then location.
+
+The scanner tracks Rust comment and literal boundaries, so a pattern inside a block comment, doc example, or string literal is not reported. Findings inside `#[cfg(test)]` code are reported at reduced severity, because test code does not ship.
+
+**Confidence means pattern-detection confidence, not exploitability.** A high-confidence finding says the pattern is definitely there, not that a vulnerability is confirmed.
+
+### Scan scope
+
+A broad audit reads what Cargo actually builds: each crate's `src/`, plus `build.rs`. It skips test, benchmark, and example targets, and skips `.rs` files that no Cargo target reaches at all — sample input, vendored snapshots, scratch material. Code that is never compiled cannot carry runtime risk, and scanning it buries the findings that matter.
+
+The skip is never silent. Every report states how many files were left out and why:
+
+```
+Excluded 18 Rust file(s) from source scanning: 18 file(s) no Cargo target reaches.
+Set includeNonShippedSources to include them.
+```
+
+Pass `includeNonShippedSources: true` to `rust_audit_project` to include them. `rust_review_current_diff` never applies this filter — if you changed a test target, you changed it on purpose, so it is reviewed.
+
+## What it can and cannot tell you
+
+**It can tell you** where a crate's unsafe and FFI surface is and what obligations each site carries; what a specific change introduced, and which pre-existing code is close enough to matter; where build-time and supply-chain trust boundaries sit — build scripts, git and path dependencies, proc macros, registry replacement, custom target runners; and which risks someone already accepted, including the acceptances that have expired.
+
+**It cannot tell you** whether a particular `unsafe` block is actually unsound. It points at the places where memory safety depends on an invariant a compiler is not checking, and hands you the evidence and the question. Proving the invariant is still your job, or your reviewer's.
+
+### Known limitations
+
+- **No known-vulnerability check.** There is no [RustSec advisory](https://rustsec.org) or CVE lookup, so it will never tell you a dependency version has a published advisory. Run `cargo audit` or `cargo deny` alongside it. ([tracked in the roadmap](ROADMAP.md))
+- **Patterns with lexical context, not semantic analysis.** There is no AST, type information, data flow, or taint tracking. It knows a line is code rather than a comment or a string, and it knows which function and unsafe block a line sits in. It does not know where a pointer came from.
+- **Risk level tracks volume and severity, not exploitability.** A crate that uses `unsafe` deliberately — SIMD, allocators, FFI bindings — will read `high_risk` because it has many findings, not because it is dangerous. memchr reports 374 findings in real source; memchr is fine. Read the findings, not the label.
+- **A reviewed, documented unsafe block is still reported.** A nearby `SAFETY:` comment lowers the confidence but does not remove the finding, because the tool cannot check whether the comment is true. That is what accepted-risk suppressions are for.
+- **A bare `#[tokio::test]` counts as production code** unless it sits inside a `#[cfg(test)]` module. Only Rust's own `#[test]` and a `cfg` that definitely requires `test` lower a finding's severity — any other attribute path could be a macro that compiles in a release build.
+- **Dependency review reads manifests, not the resolved graph.** It inspects `Cargo.toml`, `Cargo.lock`, `build.rs`, and `.cargo/config.toml`. It does not resolve transitive dependencies, check for yanked crates, or evaluate feature unification.
+- Not formal verification, symbolic execution, or a replacement for human review of unsafe invariants.
+- Not a hosted service, SaaS scanner, or uploaded-code scanner. It reads local paths only.
+- Not a generic code review or style tool.
 
 ## Install
 
@@ -167,53 +222,6 @@ Ask for them in plain language — `review current diff before I commit`, `audit
 Every tool takes `projectPath`, `outputFormat` (`markdown` | `json`), `pathMode` (`relative` | `absolute`), and `reportMode` (`compact` | `full`). Defaults are `relative` and `compact`, which keeps local absolute paths out of anything you paste into a PR.
 
 Sanitized example outputs for each tool live in [`examples/reports/`](examples/reports).
-
-## What It Catches
-
-**Unsafe and FFI** — `RSA-UNSAFE-BLOCK`, `RSA-UNSAFE-FN`, `RSA-UNSAFE-IMPL-SEND`, `RSA-UNSAFE-IMPL-SYNC`, `RSA-FFI-EXTERN-C`, `RSA-FFI-CSTR-FROM-PTR`, `RSA-UNSAFE-TRANSMUTE`, `RSA-UNSAFE-MAYBEUNINIT`, `RSA-UNSAFE-FROM-RAW-PARTS`, `RSA-UNSAFE-SET-LEN`, `RSA-UNSAFE-BOX-FROM-RAW`, `RSA-UNSAFE-GET-UNCHECKED`, `RSA-UNSAFE-UNCHECKED-CALL`, `RSA-UNSAFE-STATIC-MUT`, `RSA-UNSAFE-RAW-PTR-ACCESS`
-
-**Supply chain and build** — `RSA-DEP-GIT`, `RSA-DEP-PATH`, `RSA-DEP-PROC-MACRO`, `RSA-DEP-BUILD-DEPENDENCIES`, `RSA-DEP-LOCK-GIT`, `RSA-DEP-VERSION-UNBOUNDED`, `RSA-BUILD-SCRIPT`, `RSA-BUILD-COMMAND`, `RSA-CARGO-SOURCE-REPLACEMENT`, `RSA-CARGO-RUNNER`
-
-**Runtime execution** — `RSA-EXEC-COMMAND`
-
-Every finding carries a rule id, file and line, evidence, why it matters, a concrete risk scenario, and a suggested fix. Findings are deduplicated by `file + startLine + ruleId` and sorted by severity, then confidence, then location.
-
-The scanner tracks Rust comment and literal boundaries, so a pattern inside a block comment, doc example, or string literal is not reported. Findings inside `#[cfg(test)]` code are reported at reduced severity, because test code does not ship.
-
-**Confidence means pattern-detection confidence, not exploitability.** A high-confidence finding says the pattern is definitely there, not that a vulnerability is confirmed.
-
-### Scan scope
-
-A broad audit reads what Cargo actually builds: each crate's `src/`, plus `build.rs`. It skips test, benchmark, and example targets, and skips `.rs` files that no Cargo target reaches at all — sample input, vendored snapshots, scratch material. Code that is never compiled cannot carry runtime risk, and scanning it buries the findings that matter.
-
-The skip is never silent. Every report states how many files were left out and why:
-
-```
-Excluded 18 Rust file(s) from source scanning: 18 file(s) no Cargo target reaches.
-Set includeNonShippedSources to include them.
-```
-
-Pass `includeNonShippedSources: true` to `rust_audit_project` to include them. `rust_review_current_diff` never applies this filter — if you changed a test target, you changed it on purpose, so it is reviewed.
-
-On [`BurntSushi/memchr`](https://github.com/BurntSushi/memchr) this takes a default audit from 1,721 findings to 396; the 1,325 removed were almost entirely one 1.6 MB benchmark *input* file that Cargo never compiles.
-
-## What it can and cannot tell you
-
-**It can tell you** where a crate's unsafe and FFI surface is and what obligations each site carries; what a specific change introduced, and which pre-existing code is close enough to matter; where build-time and supply-chain trust boundaries sit — build scripts, git and path dependencies, proc macros, registry replacement, custom target runners; and which risks someone already accepted, including the acceptances that have expired.
-
-**It cannot tell you** whether a particular `unsafe` block is actually unsound. It points at the places where memory safety depends on an invariant a compiler is not checking, and hands you the evidence and the question. Proving the invariant is still your job, or your reviewer's.
-
-### Known limitations
-
-- **No known-vulnerability check.** There is no [RustSec advisory](https://rustsec.org) or CVE lookup, so it will never tell you a dependency version has a published advisory. Run `cargo audit` or `cargo deny` alongside it. ([tracked in the roadmap](ROADMAP.md))
-- **Patterns with lexical context, not semantic analysis.** There is no AST, type information, data flow, or taint tracking. It knows a line is code rather than a comment or a string, and it knows which function and unsafe block a line sits in. It does not know where a pointer came from.
-- **Risk level tracks volume and severity, not exploitability.** A crate that uses `unsafe` deliberately — SIMD, allocators, FFI bindings — will read `high_risk` because it has many findings, not because it is dangerous. memchr reports 374 findings in real source; memchr is fine. Read the findings, not the label.
-- **A reviewed, documented unsafe block is still reported.** A nearby `SAFETY:` comment lowers the confidence but does not remove the finding, because the tool cannot check whether the comment is true. That is what accepted-risk suppressions are for.
-- **A bare `#[tokio::test]` counts as production code** unless it sits inside a `#[cfg(test)]` module. Only Rust's own `#[test]` and a `cfg` that definitely requires `test` lower a finding's severity — any other attribute path could be a macro that compiles in a release build.
-- **Dependency review reads manifests, not the resolved graph.** It inspects `Cargo.toml`, `Cargo.lock`, `build.rs`, and `.cargo/config.toml`. It does not resolve transitive dependencies, check for yanked crates, or evaluate feature unification.
-- Not formal verification, symbolic execution, or a replacement for human review of unsafe invariants.
-- Not a hosted service, SaaS scanner, or uploaded-code scanner. It reads local paths only.
-- Not a generic code review or style tool.
 
 ## Current Diff Review
 
