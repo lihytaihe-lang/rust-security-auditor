@@ -4,7 +4,7 @@ export * from "./projectScanner.js";
 export * from "./rustProjectScanner.js";
 export * from "./rules.js";
 export * from "./scannerUtils.js";
-export * from "./rustLexer.js";
+export { findTestCodeLines, isImportLine, maskRustSource, type MaskedRustSource } from "./rustLexer.js";
 export * from "./sourceRiskScanner.js";
 export * from "./suppressions.js";
 export * from "./types.js";

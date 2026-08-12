@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
 import type { Finding } from "../src/reports/index.js";
+import { maskRustSourceInvocations } from "../src/scanners/rustLexer.js";
+import * as publicScanners from "../src/scanners/index.js";
 import {
   DependencyScanner,
   SourceRiskScanner,
@@ -12,7 +14,6 @@ import {
   isImportLine,
   listAcceptedRiskInventory,
   maskRustSource,
-  maskRustSourceInvocations,
   scanRustProject,
   scanCargoConfigText,
   scanCargoManifestText,
@@ -277,6 +278,10 @@ describe("unsafe scanning with lexical context", () => {
 });
 
 describe("lexing work is bounded by files, not findings", () => {
+  it("keeps the test-only lexing counter out of the public scanner barrel", () => {
+    assert.equal("maskRustSourceInvocations" in publicScanners, false);
+  });
+
   it("lexes a dense single-file crate a fixed number of times", async () => {
     const before = maskRustSourceInvocations();
     const result = await scanRustProject({ workspacePath: denseFindingsFixturePath });

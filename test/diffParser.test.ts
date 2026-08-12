@@ -80,4 +80,21 @@ describe("git path identity", () => {
     assert.equal(isPlatformAddressableGitPath("src\\alias.rs", "linux"), true);
     assert.equal(isPlatformAddressableGitPath("src/alias.rs", "win32"), true);
   });
+
+  it("rejects Windows path spellings that the filesystem would reinterpret", () => {
+    // A successful read is not enough: these spellings can resolve as an ADS,
+    // a trimmed sibling, or a reserved device rather than the Git path.
+    for (const path of [
+      "src/alias:evil.rs",
+      "src/alias?.rs",
+      "src/alias .",
+      "src/alias.rs ",
+      "src/alias.rs.",
+      "src/CON.rs",
+      "src/lpt1.txt"
+    ]) {
+      assert.equal(isPlatformAddressableGitPath(path, "win32"), false, path);
+    }
+    assert.equal(isPlatformAddressableGitPath("src/ordinary.rs", "win32"), true);
+  });
 });

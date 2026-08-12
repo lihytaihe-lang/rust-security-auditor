@@ -27,7 +27,7 @@
 | P2 | R5 | 路径泄漏测试硬编码维护者本机目录 | 所有公开测试改用合成路径，测试语义不变。 |
 | P2 | R6 | `rust_review_current_diff` 旗舰示例缺失且生成器未覆盖 | 生成器可确定性产出该示例，字段与真实输出同步。 |
 | P2 | R4 | README/CHANGELOG 混入内部审核口吻，并回写历史发布事实 | 保留事实边界，但改为用户文档语言；不改写已发布版本历史。 |
-| P3 | R3 | 安全读取器使合成扫描约慢 5.5 倍 | 在不放宽 no-follow、身份复核和 fail-closed 语义的前提下降低重复 root 解析开销。 |
+| P3 | R3 | 安全读取器使合成扫描约慢 5.5 倍 | 以 profile 为准处理真实热点；不得假定 canonical root 解析是主瓶颈。 |
 
 除 C1、R1、R2 外，不允许把发布门从 `HOLD` 改为可提交复核。
 
@@ -121,13 +121,22 @@ node /absolute/path/to/rust-security-auditor/dist/src/mcp/server.js
 
 ## 6. 实施批次 D：性能单独优化（R3）
 
-该批次必须在 A–C 通过后独立进行。
+### 2026-08-12 对抗复核更新：取消 canonical-root 缓存方向
+
+该方向不再排期。复核确认实际爆炸项是同一文件的 suppression 查找按 finding 重复执行 `maskRustSource`，而不是 `SafeSourceReader` 的 canonical root 解析：6000 findings 单文件的复杂度曾是 findings × lines。现有修复将 comment-only 词法结果以每次 `applySuppressions` 调用、每个文件独立缓存，消除了该平方项；测试也验证计数器不再作为公开 scanner API 导出。
+
+因此：
+
+1. 不实现仅回收约 4% 的 root-resolution cache，也不放宽逐组件 `lstat`、`O_NOFOLLOW`、打开后身份复核或 coverage fail-closed 语义。
+2. 三个 scanner 各自的缓存是有意的调用级隔离；它们共享同一 `SafeSourceReader`，不共享可变的 suppression 结果。
+3. 如将来有新的 profile 证据，再单独提出性能变更，并先重跑符号链接、ancestor-swap、超限、并发和 coverage 回归。
+
+若出现新的、有证据的性能热点，该批次必须在 A–C 通过后独立进行。
 
 1. 先保留 Claude 的 800 文件/5 层目录基准并记录环境和三次结果；性能数字只用于比较，不作为安全通过证据。
-2. 允许缓存单次 `SafeSourceReader` 会话中的 canonical root 解析结果。
-3. 不缓存可被路径替换影响的被读取文件身份；每次读取仍保留 `O_NOFOLLOW`、打开前/后身份复核及 coverage fail-closed 行为。
-4. 调整后重新跑符号链接、ancestor-swap、超限、并发和 coverage 测试；安全回归优先于性能数字。
-5. 若优化需放宽逐组件检查，必须先用对抗测试证明发现阶段检查、descriptor check 和后置身份复核共同覆盖该竞态；否则不合入。
+2. 不缓存可被路径替换影响的被读取文件身份；每次读取仍保留 `O_NOFOLLOW`、打开前/后身份复核及 coverage fail-closed 行为。
+3. 调整后重新跑符号链接、ancestor-swap、超限、并发和 coverage 测试；安全回归优先于性能数字。
+4. 若优化需放宽逐组件检查，必须先用对抗测试证明发现阶段检查、descriptor check 和后置身份复核共同覆盖该竞态；否则不合入。
 
 ## 7. 提交边界和验证门
 
@@ -136,7 +145,7 @@ node /absolute/path/to/rust-security-auditor/dist/src/mcp/server.js
 1. `fix(diff): fail closed on ambiguous Git paths and preserve block priority`（C1、R2 和对抗测试）
 2. `docs(mcp): document runnable local checkout configuration`（R1、ChatGPT/Codex 与 Claude 配置示例、checkout 启动验证）
 3. `docs(release): regenerate diff example and remove local test paths`（R4、R5、R6）
-4. `perf(scanner): cache per-session root resolution without weakening read checks`（R3，单独审查）
+4. `perf(scanner): cache suppression lexical views per file without changing read checks`（R3，已有实现；后续仅接受新的 profile 驱动改动）
 
 每个实现批次至少执行：
 

@@ -20,7 +20,7 @@
   },
   "codexMcpConfigurationReference": {
     "file": "~/.codex/config.toml or .codex/config.toml in a trusted project",
-    "toml": "[mcp_servers.rust_security_auditor]\ncommand = \"/absolute/path/to/node_modules/.bin/rust-security-auditor\"\ncwd = \"/absolute/path/to/rust/project\"",
+    "toml": "[mcp_servers.rust_security_auditor]\ncommand = \"node\"\nargs = [\"/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js\"]",
     "status": "configuration-reference-only"
   },
   "tools": [
@@ -92,7 +92,7 @@
     }
   ],
   "stdioNotes": [
-    "Use the installed rust-security-auditor binary. For a checkout-only development run, use npm --silent run mcp; plain npm run mcp can print lifecycle banners to stdout.",
+    "Build the local checkout with npm run build, then run node with the absolute dist/src/mcp/server.js path.",
     "MCP stdio stdout must contain only JSON-RPC protocol frames. Ordinary logs must not pollute stdout.",
     "The server scans local project paths passed by Codex. It does not require uploading code packages."
   ],
@@ -101,14 +101,11 @@
     "This is not a SaaS upload flow.",
     "This is not a web UI."
   ],
-  "localCheckoutAlternative": {
-    "command": "npm",
+  "primaryLocalCheckout": {
+    "command": "node",
     "args": [
-      "--silent",
-      "run",
-      "mcp"
+      "/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"
     ],
-    "cwd": "/absolute/path/to/rust-security-auditor",
-    "note": "Checkout-only development reference; use only through an actual Codex MCP configuration after host-specific verification."
+    "note": "Primary checkout configuration reference; use after npm ci and npm run build."
   }
 }

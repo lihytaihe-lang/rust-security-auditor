@@ -37,17 +37,27 @@ Pre-existing unsafe code elsewhere in the file is classified separately and does
 
 Requires Node.js 20 or newer. No Rust toolchain needed — the scanner reads source and manifests, it does not build your project.
 
-### Generic stdio launch model
+### Primary path: local checkout
 
-Use the primary installed binary as the MCP command. Its standard input and output are reserved for JSON-RPC; logs go to stderr.
+Clone, install dependencies, and build once:
+
+```bash
+git clone https://github.com/lihytaihe-lang/rust-security-auditor.git
+cd rust-security-auditor
+npm ci
+npm run build
+```
+
+Point the MCP client directly at that checkout's built server. Its standard input and output are reserved for JSON-RPC; logs go to stderr.
 
 ```json
 {
-  "command": "/absolute/path/to/node_modules/.bin/rust-security-auditor",
-  "args": [],
-  "cwd": "/absolute/path/to/rust/project"
+  "command": "node",
+  "args": ["/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"]
 }
 ```
+
+Pass the Rust project as the tool's absolute `projectPath`; the server process does not need to run from that project directory.
 
 ### Client compatibility and configuration references
 
@@ -55,7 +65,8 @@ The status words in this table are deliberately narrow. “End-to-end verified�
 
 | Host or boundary | Status | Evidence or configuration reference |
 | --- | --- | --- |
-| Installed package stdio boundary | End-to-end verified | 2026-08-11, macOS 26.5.2, Node 25.9.0: a freshly installed tarball was launched through `node_modules/.bin`, then completed `initialize`, `notifications/initialized`, `tools/list`, and `rust_audit_project`. This does not validate an MCP host UI. |
+| Checkout stdio boundary | End-to-end verified | The built checkout server completes `initialize`, `notifications/initialized`, `tools/list`, and `rust_audit_project` over stdio. This does not validate an MCP host UI. |
+| Package publication boundary | Release-path regression guard | `npm run verify:package` creates a local tarball, installs it fresh, launches `node_modules/.bin`, and completes the MCP handshake. It does not publish a package or make npm the primary install route. |
 | Claude Code | Configuration reference from official docs only | Use the Claude Code command below; no Claude Code host run is recorded. |
 | Claude Desktop | Unverified | The current official flow is a Desktop Extension. This package does not ship an `.mcpb` extension, so it provides no Desktop-specific binary configuration or support claim. |
 | Codex CLI, app, and IDE extension | Configuration reference from official docs only | These Codex clients share MCP configuration; the TOML reference below has not been run in any Codex host. |
@@ -65,7 +76,7 @@ The status words in this table are deliberately narrow. “End-to-end verified�
 **Claude Code — configuration reference**
 
 ```bash
-claude mcp add --transport stdio rust-security-auditor -- /absolute/path/to/node_modules/.bin/rust-security-auditor
+claude mcp add --transport stdio rust-security-auditor -- node /absolute/path/to/rust-security-auditor/dist/src/mcp/server.js
 ```
 
 **Codex CLI, app, and IDE extension — configuration reference**
@@ -73,8 +84,14 @@ claude mcp add --transport stdio rust-security-auditor -- /absolute/path/to/node
 ```toml
 # ~/.codex/config.toml or a trusted project's .codex/config.toml
 [mcp_servers.rust_security_auditor]
-command = "/absolute/path/to/node_modules/.bin/rust-security-auditor"
-cwd = "/absolute/path/to/rust/project"
+command = "node"
+args = ["/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"]
+```
+
+The equivalent Codex CLI command is:
+
+```bash
+codex mcp add rust-security-auditor -- node /absolute/path/to/rust-security-auditor/dist/src/mcp/server.js
 ```
 
 **Cursor — configuration reference**
@@ -83,8 +100,8 @@ cwd = "/absolute/path/to/rust/project"
 {
   "mcpServers": {
     "rust-security-auditor": {
-      "command": "/absolute/path/to/node_modules/.bin/rust-security-auditor",
-      "args": []
+      "command": "node",
+      "args": ["/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"]
     }
   }
 }
@@ -98,8 +115,8 @@ Put the Cursor block in `.cursor/mcp.json` for a project or `~/.cursor/mcp.json`
 {
   "servers": {
     "rustSecurityAuditor": {
-      "command": "/absolute/path/to/node_modules/.bin/rust-security-auditor",
-      "args": []
+      "command": "node",
+      "args": ["/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"]
     }
   }
 }
@@ -109,15 +126,11 @@ Put the VS Code block in `.vscode/mcp.json` or in the user `mcp.json` opened by 
 
 Machine-readable reference material lives in [`examples/mcp-client-config.json`](examples/mcp-client-config.json) and [`examples/codex-plugin-config.json`](examples/codex-plugin-config.json). It is configuration guidance, not a support certification.
 
-**From a local checkout**
+### Optional published-package path
 
-```bash
-git clone https://github.com/lihytaihe-lang/rust-security-auditor.git
-cd rust-security-auditor
-npm ci && npm test
-```
+No version is published to npm today. After an owner-approved npm release, `npx --yes rust-security-auditor` or a global npm install may be used as an optional convenience path. The package metadata, binary entry points, `prepack`, and `npm run verify:package` remain in the repository specifically to protect that future release path; they are not the primary local-checkout instructions.
 
-Then point the client at the checkout, using `npm --silent run mcp` as the command with an absolute `cwd`. Keep `--silent`: MCP reserves stdout for JSON-RPC frames, and npm lifecycle banners break client initialization.
+For checkout debugging without a client, `npm --silent run mcp` remains available; it rebuilds before launch and is not the configured client command above.
 
 ## The Five Tools
 
