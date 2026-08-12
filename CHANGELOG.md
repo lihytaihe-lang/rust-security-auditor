@@ -38,6 +38,7 @@ Local package metadata is `0.1.2`. npm publication, Git tag, release, and prior 
   - `RSA-DEP-VERSION-UNBOUNDED` — wildcard and `>=`-only dependency requirements.
   - `RSA-CARGO-SOURCE-REPLACEMENT` — registry source replacement in `.cargo/config.toml`.
   - `RSA-CARGO-RUNNER` — custom target runners in `.cargo/config.toml`.
+- **Broad audits are scoped to what Cargo builds.** `rust_audit_project`, `rust_audit_unsafe`, and `rust_audit_dependencies` read each crate's `src/` and `build.rs`, and skip test/benchmark/example targets plus `.rs` files no Cargo target reaches. Every report states how many files were skipped and why; `includeNonShippedSources` scans them anyway. `rust_review_current_diff` never applies the filter, because a changed test target was changed on purpose. On `BurntSushi/memchr` a default audit drops from 1,721 findings to 396, with the removed set almost entirely one 1.6 MB benchmark input file.
 - `.cargo/config.toml` and `.cargo/config` are now discovered and scanned.
 - Findings inside `#[cfg(test)]` and `#[test]` items are reported at reduced severity with an explanatory note, so test-only code does not drive a release gate.
 - File discovery reports what it skipped: oversized files, unfollowed symbolic links, unreadable directories, and truncation at the file-count cap. Previously these were silent.

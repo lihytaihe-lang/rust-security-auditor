@@ -176,6 +176,21 @@ The scanner tracks Rust comment and literal boundaries, so a pattern inside a bl
 
 **Confidence means pattern-detection confidence, not exploitability.** A high-confidence finding says the pattern is definitely there, not that a vulnerability is confirmed.
 
+### Scan scope
+
+A broad audit reads what Cargo actually builds: each crate's `src/`, plus `build.rs`. It skips test, benchmark, and example targets, and skips `.rs` files that no Cargo target reaches at all — sample input, vendored snapshots, scratch material. Code that is never compiled cannot carry runtime risk, and scanning it buries the findings that matter.
+
+The skip is never silent. Every report states how many files were left out and why:
+
+```
+Scanned 46 Rust file(s) that Cargo builds; skipped 18 (18 file(s) no Cargo target reaches).
+Set includeNonShippedSources to scan them too.
+```
+
+Pass `includeNonShippedSources: true` to `rust_audit_project` to include them. `rust_review_current_diff` never applies this filter — if you changed a test target, you changed it on purpose, so it is reviewed.
+
+On [`BurntSushi/memchr`](https://github.com/BurntSushi/memchr) this takes a default audit from 1,721 findings to 396; the 1,325 removed were almost entirely one 1.6 MB benchmark *input* file that Cargo never compiles.
+
 ## What It Is Not
 
 - **It does not check for known vulnerabilities.** There is no [RustSec advisory database](https://rustsec.org) or CVE lookup — it will not tell you that a dependency version has a published advisory. Run `cargo audit` or `cargo deny` alongside it. ([tracked in the roadmap](ROADMAP.md))

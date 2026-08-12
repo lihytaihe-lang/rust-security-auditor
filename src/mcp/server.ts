@@ -54,7 +54,13 @@ export function createRustSecurityAuditorMcpServer(): McpServer {
         includeSuppressed: z
           .boolean()
           .optional()
-          .describe("When true, include findings that were hidden by inline rust-security-auditor suppression comments.")
+          .describe("When true, include findings that were hidden by inline rust-security-auditor suppression comments."),
+        includeNonShippedSources: z
+          .boolean()
+          .optional()
+          .describe(
+            "When true, also scan Rust files Cargo never compiles into the crate: test, benchmark, and example targets, plus files no Cargo target reaches. Off by default; the report always states how many files were skipped."
+          )
       }
     },
     async (input) => toCallToolResult(await rustAuditProject(input))

@@ -24,6 +24,7 @@ export interface RustAuditProjectInput {
   pathMode?: PathMode | undefined;
   reportMode?: ReportMode | undefined;
   includeSuppressed?: boolean | undefined;
+  includeNonShippedSources?: boolean | undefined;
 }
 
 export interface RustAuditUnsafeInput {

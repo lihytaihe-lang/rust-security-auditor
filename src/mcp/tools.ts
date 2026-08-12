@@ -81,7 +81,8 @@ export async function rustAuditProject(input: RustAuditProjectInput): Promise<Mc
     const reportMode = normalizeReportMode(input.reportMode);
     const scan = await scanRustProject({
       workspacePath: projectPath,
-      includeSuppressed: input.includeSuppressed === true
+      includeSuppressed: input.includeSuppressed === true,
+      includeNonShippedSources: input.includeNonShippedSources === true
     });
     requireRustProject(scan.project);
 
@@ -173,7 +174,7 @@ export async function rustReviewCurrentDiff(input: RustReviewCurrentDiffInput): 
     const pathMode = normalizePathMode(input.pathMode);
     const reportMode = normalizeReportMode(input.reportMode);
     const nearChangedLineWindow = normalizeNearChangedLineWindow(input.nearChangedLineWindow);
-    const projectResult = await new ProjectScanner().scan({ workspacePath: projectPath });
+    const projectResult = await new ProjectScanner().scan({ workspacePath: projectPath, includeNonShippedSources: true });
     requireRustProject(projectResult.project);
     const gitDiff = await readGitDiff(projectPath, input);
     requireAddressableDiffPaths(gitDiff.diff);
@@ -2033,10 +2034,13 @@ async function scanRustProjectFiles(
 ): Promise<RustProjectScanResult> {
   const projectResult =
     existingProject === undefined
-      ? await new ProjectScanner().scan({ workspacePath: projectPath })
+      ? await new ProjectScanner().scan({ workspacePath: projectPath, includeNonShippedSources: true })
       : { project: existingProject, warnings: [] };
   const project = filterRustProject(projectResult.project, files);
-  const scanOptions = { workspacePath: projectPath, project };
+  // The diff already names the files. A change the author made to a test,
+  // benchmark, or example target is still their change, so current-diff review
+  // does not apply the shipped-target filter that broad audits use.
+  const scanOptions = { workspacePath: projectPath, project, includeNonShippedSources: true };
   const [unsafeResult, dependencyResult, sourceRiskResult] = await Promise.all([
     new UnsafeScanner().scan(scanOptions),
     new DependencyScanner().scan(scanOptions),
@@ -2077,6 +2081,7 @@ function emptyRustProjectScan(projectPath: string, sourceReader = new SafeSource
       cargoConfigFiles: [],
       buildScripts: [],
       rustSourceFiles: [],
+      rustTargetSummary: { shipped: 0, buildScript: 0, development: 0, unreferenced: 0 },
       workspaceManifests: [],
       discoveryWarnings: [],
       sourceReader,

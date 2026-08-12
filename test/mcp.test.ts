@@ -916,6 +916,43 @@ describe("MCP audit tools", () => {
     assert.deepEqual(includePreExistingDecision.blockingFindingIds, []);
   });
 
+  it("still reviews a changed test target even though broad audits skip it", async () => {
+    const { tempRoot, repoPath } = await createDiffReviewRepo();
+
+    try {
+      await mkdir(join(repoPath, "tests"), { recursive: true });
+      await writeFile(join(repoPath, "tests/integration.rs"), "pub fn existing() {}\n", "utf8");
+      await runShellCommandOrThrow("git", ["add", "."], { cwd: repoPath });
+      await runShellCommandOrThrow("git", ["commit", "-m", "add integration test"], { cwd: repoPath });
+
+      await writeFile(
+        join(repoPath, "tests/integration.rs"),
+        "pub fn existing() {}\n\npub fn added(p: *const u8) -> u8 {\n    unsafe { *p }\n}\n",
+        "utf8"
+      );
+
+      const [diffOutput, auditOutput] = await Promise.all([
+        rustReviewCurrentDiff({ projectPath: repoPath, outputFormat: "json" }),
+        rustAuditProject({ projectPath: repoPath, outputFormat: "json" })
+      ]);
+
+      // A broad audit skips test targets because they do not ship. A diff
+      // review must not: the author changed that file on purpose.
+      assert.equal(diffOutput.error, undefined);
+      assert.ok(
+        diffOutput.findings.some((finding) => finding.file === "tests/integration.rs"),
+        `diff review dropped the changed test target: ${JSON.stringify(diffOutput.findings.map((f) => f.file))}`
+      );
+      assert.equal(
+        auditOutput.findings.some((finding) => finding.file === "tests/integration.rs"),
+        false
+      );
+      assert.ok(auditOutput.warnings?.some((warning) => warning.includes("skipped")));
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("does not alias a backslash file name onto a harmless sibling", { skip: process.platform === "win32" }, async () => {
     const { tempRoot, repoPath } = await createDiffReviewRepo();
 

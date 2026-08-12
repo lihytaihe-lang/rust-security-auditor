@@ -1,6 +1,7 @@
 import type { Finding } from "../reports/schemas.js";
 import { createScannerFinding, lineEvidence } from "./findingUtils.js";
 import { discoverRustProject, type RustProject } from "./projectScanner.js";
+import { isShippedTargetKind } from "./cargoTargets.js";
 import { finalizeScannerResult } from "./resultUtils.js";
 import { findTestCodeLines, maskRustSource } from "./rustLexer.js";
 import type { RuleId } from "./rules.js";
@@ -18,6 +19,7 @@ export class UnsafeScanner implements SecurityScanner<UnsafeScannerContext> {
     const findings: Finding[] = [];
 
     for (const sourceFile of project.rustSourceFiles) {
+      if (options.includeNonShippedSources !== true && !isShippedTargetKind(sourceFile.targetKind)) continue;
       const lines = await project.sourceReader.readTextLines(sourceFile.absolutePath, sourceFile.file, "rust", "unsafe_scan");
       if (lines === undefined) continue;
       const masked = maskRustSource(lines);

@@ -1,3 +1,5 @@
+import { posix } from "node:path";
+import { classifyRustSourceFile, type RustTargetKind } from "./cargoTargets.js";
 import type { ScannerContext, ScannerResult, SecurityScanner } from "./types.js";
 import {
   collectWorkspaceFiles,
@@ -19,6 +21,20 @@ export interface ProjectFile {
   line: number;
 }
 
+export interface RustSourceFile extends ProjectFile {
+  /** How Cargo reaches this file, or that it reaches it at all. */
+  targetKind: RustTargetKind;
+  /** Workspace-relative directory of the owning manifest; `""` is the root. */
+  crateDirectory: string | undefined;
+}
+
+export interface RustTargetSummary {
+  shipped: number;
+  buildScript: number;
+  development: number;
+  unreferenced: number;
+}
+
 export interface WorkspaceManifest extends ProjectFile {
   members: string[];
 }
@@ -30,8 +46,10 @@ export interface RustProject {
   cargoLockFiles: ProjectFile[];
   cargoConfigFiles: ProjectFile[];
   buildScripts: ProjectFile[];
-  rustSourceFiles: ProjectFile[];
+  rustSourceFiles: RustSourceFile[];
   workspaceManifests: WorkspaceManifest[];
+  /** Counts per Cargo target kind, so an exclusion is always reportable. */
+  rustTargetSummary: RustTargetSummary;
   /** Discovery-time limits that were hit, such as skipped symlinks or oversized files. */
   discoveryWarnings: string[];
   /** Per-tool-call bounded source capability, intentionally not serialized into reports. */
@@ -50,7 +68,8 @@ export class ProjectScanner implements SecurityScanner<ScannerContext> {
     const project = await discoverRustProject(options.workspacePath, options.sourceReader);
     const warnings = [
       ...(project.isRustProject ? [] : [`No Cargo.toml files found under ${options.workspacePath}`]),
-      ...project.discoveryWarnings
+      ...project.discoveryWarnings,
+      ...describeSkippedRustTargets(project.rustTargetSummary, options.includeNonShippedSources === true)
     ];
 
     return {
@@ -69,7 +88,7 @@ export async function discoverRustProject(workspacePath: string, existingReader?
   const cargoLockFiles: ProjectFile[] = [];
   const cargoConfigFiles: ProjectFile[] = [];
   const buildScripts: ProjectFile[] = [];
-  const rustSourceFiles: ProjectFile[] = [];
+  const discoveredRustFiles: ProjectFile[] = [];
   const workspaceManifests: WorkspaceManifest[] = [];
 
   for (const absolutePath of files) {
@@ -103,9 +122,22 @@ export async function discoverRustProject(workspacePath: string, existingReader?
     }
 
     if (isRustSourcePath(absolutePath)) {
-      rustSourceFiles.push({ file, absolutePath, line: 1 });
+      discoveredRustFiles.push({ file, absolutePath, line: 1 });
     }
   }
+
+  // Classification needs every manifest, so it runs after discovery rather than
+  // inside the loop: a manifest can sort after the sources it owns.
+  const manifestDirectories = new Set(
+    cargoTomlFiles.map((manifest) => {
+      const directory = posix.dirname(manifest.file);
+      return directory === "." ? "" : directory;
+    })
+  );
+  const rustSourceFiles: RustSourceFile[] = discoveredRustFiles.map((source) => ({
+    ...source,
+    ...classifyRustSourceFile(source.file, manifestDirectories)
+  }));
 
   return {
     workspacePath,
@@ -115,6 +147,7 @@ export async function discoverRustProject(workspacePath: string, existingReader?
     cargoConfigFiles,
     buildScripts,
     rustSourceFiles,
+    rustTargetSummary: summarizeRustTargets(rustSourceFiles),
     workspaceManifests,
     discoveryWarnings: warnings,
     sourceReader,
@@ -162,4 +195,32 @@ function workspaceManifest(
 function nextSectionIndex(lines: readonly string[], startIndex: number): number {
   const index = lines.findIndex((line, currentIndex) => currentIndex >= startIndex && /^\s*\[[^\]]+\]\s*$/.test(line));
   return index === -1 ? lines.length : index;
+}
+
+export function summarizeRustTargets(files: readonly RustSourceFile[]): RustTargetSummary {
+  return {
+    shipped: files.filter((file) => file.targetKind === "shipped").length,
+    buildScript: files.filter((file) => file.targetKind === "build_script").length,
+    development: files.filter((file) => file.targetKind === "development").length,
+    unreferenced: files.filter((file) => file.targetKind === "unreferenced").length
+  };
+}
+
+/**
+ * A skipped file must never be invisible. When the scan is limited to what
+ * Cargo builds, the report states how many files were left out and why, so a
+ * lower finding count is explained rather than merely smaller.
+ */
+export function describeSkippedRustTargets(summary: RustTargetSummary, includeNonShipped: boolean): string[] {
+  const skipped = summary.development + summary.unreferenced;
+  if (includeNonShipped || skipped === 0) return [];
+
+  const parts = [
+    summary.development === 0 ? undefined : `${summary.development} test/benchmark/example target file(s)`,
+    summary.unreferenced === 0 ? undefined : `${summary.unreferenced} file(s) no Cargo target reaches`
+  ].filter((part): part is string => part !== undefined);
+
+  return [
+    `Scanned ${summary.shipped + summary.buildScript} Rust file(s) that Cargo builds; skipped ${skipped} (${parts.join(", ")}). Set includeNonShippedSources to scan them too.`
+  ];
 }

@@ -7,6 +7,12 @@ export interface ScannerContext {
   includeSuppressed?: boolean;
   /** Shared per-tool-call source capability. Internal callers should forward it. */
   sourceReader?: SafeSourceReader;
+  /**
+   * Include Rust files Cargo never compiles into the crate: test, benchmark,
+   * and example targets, plus stray `.rs` files no target reaches. Off by
+   * default; every skipped file is still counted and reported.
+   */
+  includeNonShippedSources?: boolean;
 }
 
 export interface ScannerResult {

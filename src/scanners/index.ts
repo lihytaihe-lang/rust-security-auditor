@@ -1,4 +1,5 @@
 export * from "./acceptedRiskInventory.js";
+export * from "./cargoTargets.js";
 export * from "./dependencyScanner.js";
 export * from "./projectScanner.js";
 export * from "./rustProjectScanner.js";

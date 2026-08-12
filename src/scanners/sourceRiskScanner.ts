@@ -1,6 +1,7 @@
 import type { Finding } from "../reports/schemas.js";
 import { createScannerFinding, lineEvidence } from "./findingUtils.js";
 import { discoverRustProject, type RustProject } from "./projectScanner.js";
+import { isShippedTargetKind } from "./cargoTargets.js";
 import { finalizeScannerResult } from "./resultUtils.js";
 import { findTestCodeLines, isImportLine, maskRustSource } from "./rustLexer.js";
 import { isBuildScriptPath } from "./scannerUtils.js";
@@ -23,6 +24,7 @@ export class SourceRiskScanner implements SecurityScanner<SourceRiskScannerConte
     const findings: Finding[] = [];
 
     for (const sourceFile of project.rustSourceFiles) {
+      if (options.includeNonShippedSources !== true && !isShippedTargetKind(sourceFile.targetKind)) continue;
       if (isBuildScriptPath(sourceFile.absolutePath)) continue;
 
       const lines = await project.sourceReader.readTextLines(sourceFile.absolutePath, sourceFile.file, "rust", "source_risk_scan");
