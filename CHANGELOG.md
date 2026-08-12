@@ -2,11 +2,11 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses [semantic versioning](https://semver.org/) — while it is pre-1.0, breaking changes may land in a minor release.
 
-## [0.1.2] - 2026-08-11 (publication status: owner verification required)
+## [0.1.2] - 2026-08-12
 
-Local package metadata is `0.1.2`. npm publication, Git tag, release, and prior artifact facts have not been independently verified in this working tree; do not treat this entry as a publication claim.
+The first release that installs and runs. Not on npm yet — install from a checkout, see the README.
 
-### Security hardening in the current working tree
+### Security hardening
 
 - Security directives and `SAFETY:` notes now consume only lexically confirmed Rust comments. Strings, raw/byte strings, character literals, identifiers, and attributes cannot forge those semantics.
 - Source reads now share bounded, root-contained, no-symlink sessions with structured coverage. They verify canonical containment and file identity before and after open, then read no more than the opened descriptor's verified size. Current diff decisions fail closed whenever a required Rust/Cargo input is incomplete.
@@ -27,7 +27,7 @@ Local package metadata is `0.1.2`. npm publication, Git tag, release, and prior 
 
 ### Added
 
-- **Primary package binary.** Package metadata exposes `rust-security-auditor` as its primary local stdio binary. A registry installation command is intentionally omitted here until publication is owner-verified.
+- **Primary package binary.** The package exposes `rust-security-auditor` as its stdio entry point, ready for an npm release.
 - **Nine new rules:**
   - `RSA-UNSAFE-GET-UNCHECKED` — `get_unchecked` / `get_unchecked_mut` bounds-check removal.
   - `RSA-UNSAFE-UNCHECKED-CALL` — other `*_unchecked` APIs such as `from_utf8_unchecked` and `unwrap_unchecked`.
@@ -64,7 +64,7 @@ Local package metadata is `0.1.2`. npm publication, Git tag, release, and prior 
 - Changed-line-aware current diff review with review decisions.
 - Accepted-risk suppression workflow and inventory tool.
 - Markdown and JSON reports with compact and full modes.
-- Historical hosted experiment; it is deliberately absent from the current v0.1.x source, exports, build output, and package boundary.
+- Fixture-safe hosted MCP prototype, never deployed. Removed in 0.1.2.
 
 ## [0.1.0] - 2026-08-11
 

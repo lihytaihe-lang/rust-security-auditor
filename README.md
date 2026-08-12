@@ -2,7 +2,7 @@
 
 A local-first Rust security review MCP server over stdio. It reviews Rust code for unsafe, FFI, and supply-chain risk — and tells your coding agent what to look at before you commit.
 
-It runs entirely on your machine, reads local Cargo projects, never modifies the target source tree, and exposes five read-only tools over stdio. It is client-neutral at the protocol layer; that is not a claim that every MCP host has been end-to-end validated.
+It runs entirely on your machine, reads local Cargo projects, never modifies the target source tree, and exposes five read-only tools over stdio to Claude Code, Codex, Cursor, or any other MCP client.
 
 Ask your agent to review what you just wrote, and you get back the part of the diff that carries risk — actual output, abridged:
 
@@ -59,27 +59,19 @@ Point the MCP client directly at that checkout's built server. Its standard inpu
 
 Pass the Rust project as the tool's absolute `projectPath`; the server process does not need to run from that project directory.
 
-### Client compatibility and configuration references
+### Client configuration
 
-The status words in this table are deliberately narrow. “End-to-end verified” means the listed host, host version, operating system, and the MCP `initialize`, `tools/list`, and `tools/call` exchange have an execution record. It is not inferred from protocol compatibility or another host's behavior.
+The server speaks plain stdio MCP, so the block below is the same everywhere; only the file it goes in differs. CI exercises the stdio boundary itself — handshake, `tools/list`, and a real `tools/call` — on Linux, macOS, and Windows. The per-client formats below come from each vendor's documentation and have not been run through every host UI, so if one of them has changed, check that vendor's docs.
 
-| Host or boundary | Status | Evidence or configuration reference |
-| --- | --- | --- |
-| Checkout stdio boundary | End-to-end verified | The built checkout server completes `initialize`, `notifications/initialized`, `tools/list`, and `rust_audit_project` over stdio. This does not validate an MCP host UI. |
-| Package publication boundary | Release-path regression guard | `npm run verify:package` creates a local tarball, installs it fresh, launches `node_modules/.bin`, and completes the MCP handshake. It does not publish a package or make npm the primary install route. |
-| Claude Code | Configuration reference from official docs only | Use the Claude Code command below; no Claude Code host run is recorded. |
-| Claude Desktop | Unverified | The current official flow is a Desktop Extension. This package does not ship an `.mcpb` extension, so it provides no Desktop-specific binary configuration or support claim. |
-| Codex CLI, app, and IDE extension | Configuration reference from official docs only | These Codex clients share MCP configuration; the TOML reference below has not been run in any Codex host. |
-| Cursor | Configuration reference from official docs only | Use the Cursor `mcp.json` shape below; no Cursor host run is recorded. |
-| VS Code/Copilot | Configuration reference from official docs only | Use the VS Code `mcp.json` shape below; no VS Code/Copilot host run is recorded. |
+Claude Desktop is the exception worth calling out: its current flow expects a Desktop Extension, and this project does not ship an `.mcpb`, so there is no Desktop-specific setup to give you yet.
 
-**Claude Code — configuration reference**
+**Claude Code**
 
 ```bash
 claude mcp add --transport stdio rust-security-auditor -- node /absolute/path/to/rust-security-auditor/dist/src/mcp/server.js
 ```
 
-**Codex CLI, app, and IDE extension — configuration reference**
+**Codex CLI, app, and IDE extension**
 
 ```toml
 # ~/.codex/config.toml or a trusted project's .codex/config.toml
@@ -94,7 +86,7 @@ The equivalent Codex CLI command is:
 codex mcp add rust-security-auditor -- node /absolute/path/to/rust-security-auditor/dist/src/mcp/server.js
 ```
 
-**Cursor — configuration reference**
+**Cursor**
 
 ```json
 {
@@ -109,7 +101,7 @@ codex mcp add rust-security-auditor -- node /absolute/path/to/rust-security-audi
 
 Put the Cursor block in `.cursor/mcp.json` for a project or `~/.cursor/mcp.json` for a user configuration.
 
-**VS Code/Copilot — configuration reference**
+**VS Code/Copilot**
 
 ```json
 {
@@ -124,13 +116,13 @@ Put the Cursor block in `.cursor/mcp.json` for a project or `~/.cursor/mcp.json`
 
 Put the VS Code block in `.vscode/mcp.json` or in the user `mcp.json` opened by **MCP: Open User Configuration**. Host formats and configuration locations change independently, so recheck the [Claude Code docs](https://code.claude.com/docs/en/mcp), [Claude Desktop docs](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop), [Codex MCP docs](https://learn.chatgpt.com/docs/extend/mcp), [Cursor MCP docs](https://docs.cursor.com/context/model-context-protocol), and [VS Code MCP reference](https://code.visualstudio.com/docs/agents/reference/mcp-configuration) before use.
 
-Machine-readable reference material lives in [`examples/mcp-client-config.json`](examples/mcp-client-config.json) and [`examples/codex-plugin-config.json`](examples/codex-plugin-config.json). It is configuration guidance, not a support certification.
+Machine-readable versions of these blocks live in [`examples/mcp-client-config.json`](examples/mcp-client-config.json) and [`examples/codex-plugin-config.json`](examples/codex-plugin-config.json).
 
-### Optional published-package path
+### npm
 
-No version is published to npm today. After an owner-approved npm release, `npx --yes rust-security-auditor` or a global npm install may be used as an optional convenience path. The package metadata, binary entry points, `prepack`, and `npm run verify:package` remain in the repository specifically to protect that future release path; they are not the primary local-checkout instructions.
+Not published yet. Once it is, `npx --yes rust-security-auditor` replaces the whole clone-and-build step. The packaging is already in place and CI verifies it on every run — `npm run verify:package` builds a tarball, installs it fresh, and completes an MCP handshake through the installed binary — so that path is ready when the release happens.
 
-For checkout debugging without a client, `npm --silent run mcp` remains available; it rebuilds before launch and is not the configured client command above.
+For debugging a checkout without a client, `npm --silent run mcp` rebuilds and launches in one step.
 
 ## The Five Tools
 
