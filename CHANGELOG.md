@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses [semantic versioning](https://semver.org/) — while it is pre-1.0, breaking changes may land in a minor release.
 
+## [0.1.4] - 2026-08-12
+
+### Fixed
+
+- **`rust_list_accepted_risks` rejected the obvious call.** Its schema marked `includeExpired`, `includeInvalid`, and `outputFormat` required, so an agent calling it with just a project path — the way the other four tools are called — got an argument validation error instead of an inventory. The handler had always treated all three as optional and defaulted them, so nothing but the schema was asking for them. Present since 0.1.1 ([`src/mcp/server.ts`](src/mcp/server.ts), [`src/mcp/types.ts`](src/mcp/types.ts)).
+- A test now asserts that every tool's schema requires nothing but `projectPath`, and that no tool refuses a project-path-only call as invalid arguments.
+
 ## [0.1.3] - 2026-08-12
 
 ### Security hardening
