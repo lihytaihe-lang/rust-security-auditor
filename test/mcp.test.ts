@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { describe, it } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -525,7 +525,8 @@ describe("MCP audit tools", () => {
       });
 
       assert.equal(output.error, undefined);
-      assert.ok(output.projectPath.endsWith("/repo"));
+      // projectPath is the resolved OS-native path, so the separator is not `/` everywhere.
+      assert.equal(basename(output.projectPath), "repo");
       assert.match(output.reportMarkdown ?? "", /- Scope: \./);
       assert.match(output.reportMarkdown ?? "", /src\/lib\.rs/);
       assert.doesNotMatch(output.reportMarkdown ?? "", new RegExp(escapeRegExp(repoPath)));
