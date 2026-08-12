@@ -203,6 +203,43 @@ VS Code 的配置块放进 `.vscode/mcp.json`，或通过 **MCP: Open User Confi
 
 不接客户端、只想调试 checkout 的话，`npm --silent run mcp` 会重新构建并启动。
 
+## 怎么用
+
+配置好之后，你就正常跟 agent 说话。它会自己挑工具、把项目路径传进去，你只负责看结果。三种场景基本覆盖全部用法。
+
+**接手一个代码库，或者评估一个 crate。** 让它做一次全项目审计，并给出项目路径：
+
+> 审计一下 /path/to/my-rust-project 的安全风险。
+
+你会拿到：总体风险等级、按严重度和规则分类的计数、首要发现、分组的审查信号，以及哪些区域该优先看。代码对你是新的、你在决定要不要依赖某个 crate、或者准备发版时，从这里开始。
+
+**提交之前，尤其是刚生成完代码时。** 项目已经打开的话，直接说：
+
+> 提交前帮我审一下当前的改动。
+
+你会拿到 `block` / `needs_attention` / `pass` 三选一的结论、这次改动引入了什么、以及近到值得一并看的既有代码。**这个是建议每次都跑的**——改动干净时它很安静，所以常驻在流程里几乎没有成本。
+
+**发版前，清点已经接受过的风险。** 抑制记录带着负责人、工单号和过期日期：
+
+> 列一下已接受的风险，有过期的告诉我。
+
+### 怎么读一条发现
+
+每条发现都回答四个问题，你不用翻规则源码就能判断：发现了什么、在哪；证据行；为什么重要、可能出什么事；以及建议怎么修。然后分三种情况：
+
+- **确实是问题** —— 修。建议的修复和建议的测试是起点，不是定论。
+- **没问题，而且你说得出为什么** —— 把这个判断记录在代码里，而不是无视它：
+
+  ```rust
+  // rust-security-auditor: ignore RSA-UNSAFE-BLOCK owner=@you ticket=SEC-123 until=2026-12-31 -- 指针由调用方校验，已在 PR #42 评审
+  unsafe { *ptr }
+  ```
+
+  理由是必填的。它会过期，过期后这条发现会重新出现在报告里——所以这是一份审计轨迹，不是静音键。
+- **工具错了** —— 那是个值得报的 bug。带上最小复现片段开一个 [误报 issue](https://github.com/lihytaihe-lang/rust-security-auditor/issues/new?template=false-positive.yml)。
+
+一个刻意使用 `unsafe` 的 crate 被标成 `high_risk`，意思是「发现很多」，不是「很危险」。看发现本身。
+
 ## 五个工具
 
 | 工具 | 用途 |
@@ -333,4 +370,4 @@ server 会校验 `projectPath` 存在且是本地目录，只在其内部扫描�
 
 ## 状态
 
-v0.1.x 本地优先 MCP 预览版，Apache-2.0 许可。本地、只读的 Rust 审查——不是托管扫描器、ChatGPT App 或市场产品。最新发布是 [v0.1.2](https://github.com/lihytaihe-lang/rust-security-auditor/releases/tag/v0.1.2)；尚未发布到 npm。计划中的内容和有意排除在外的内容见 [ROADMAP.md](ROADMAP.md)。
+Apache-2.0 许可。最新发布是 [v0.1.2](https://github.com/lihytaihe-lang/rust-security-auditor/releases/tag/v0.1.2)；尚未发布到 npm。计划中的内容和有意排除在外的内容见 [ROADMAP.md](ROADMAP.md)。
