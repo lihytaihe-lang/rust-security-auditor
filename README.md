@@ -1,5 +1,7 @@
 # Rust Security Auditor
 
+**English** · [简体中文](README.zh-CN.md)
+
 A local-first Rust security review MCP server over stdio. It reviews Rust code for unsafe, FFI, and supply-chain risk — and tells your coding agent what to look at before you commit.
 
 It runs entirely on your machine, reads local Cargo projects, never modifies the target source tree, and exposes five read-only tools over stdio to Claude Code, Codex, Cursor, or any other MCP client.
@@ -32,6 +34,18 @@ NEEDS ATTENTION
 ```
 
 Pre-existing unsafe code elsewhere in the file is classified separately and does not look like a new blocker.
+
+## Why it works this way
+
+Most scanners answer "what is wrong with this codebase". On a crate that uses `unsafe` on purpose, that answer is a list you scroll past once and never open again. This one is built around three decisions instead.
+
+**It reviews the change, not the codebase.** [`tokio-rs/bytes`](https://github.com/tokio-rs/bytes) has 246 findings across the crate and 77 in `src/bytes.rs` alone. Add five lines with one `unsafe` block to that file and the review reports **one** introduced finding, plus one pre-existing finding that shares the same unsafe block because it is genuinely relevant — and hides the other 76. That is the number you can act on before a commit.
+
+**It only audits code Cargo builds.** A default audit of [`BurntSushi/memchr`](https://github.com/BurntSushi/memchr) used to report 1,721 findings; 1,311 of them came from a single 1.6 MB benchmark *input* file that exists to be searched, not compiled. Files are now classified by how Cargo reaches them, and broad audits read `src/` and `build.rs`. The count is 396, of which 374 are real crate source. Nothing is skipped silently — every report states what was excluded and why.
+
+**It refuses to say "pass" when it could not look.** If a file in your diff was unreadable, too large, or outside the project root, the review says so and withholds the verdict rather than reporting a clean result over a partial scan. The same applies to a Git path this platform cannot address unambiguously: the call fails instead of reviewing whatever that path happens to hit.
+
+Everything runs on your machine. It reads local paths, never writes to your source tree, and makes no network requests.
 
 ## Install
 
@@ -183,10 +197,20 @@ Pass `includeNonShippedSources: true` to `rust_audit_project` to include them. `
 
 On [`BurntSushi/memchr`](https://github.com/BurntSushi/memchr) this takes a default audit from 1,721 findings to 396; the 1,325 removed were almost entirely one 1.6 MB benchmark *input* file that Cargo never compiles.
 
-## What It Is Not
+## What it can and cannot tell you
 
-- **It does not check for known vulnerabilities.** There is no [RustSec advisory database](https://rustsec.org) or CVE lookup — it will not tell you that a dependency version has a published advisory. Run `cargo audit` or `cargo deny` alongside it. ([tracked in the roadmap](ROADMAP.md))
-- Not full AST, data-flow, control-flow, or taint analysis. Rules are line-based patterns with lexical context.
+**It can tell you** where a crate's unsafe and FFI surface is and what obligations each site carries; what a specific change introduced, and which pre-existing code is close enough to matter; where build-time and supply-chain trust boundaries sit — build scripts, git and path dependencies, proc macros, registry replacement, custom target runners; and which risks someone already accepted, including the acceptances that have expired.
+
+**It cannot tell you** whether a particular `unsafe` block is actually unsound. It points at the places where memory safety depends on an invariant a compiler is not checking, and hands you the evidence and the question. Proving the invariant is still your job, or your reviewer's.
+
+### Known limitations
+
+- **No known-vulnerability check.** There is no [RustSec advisory](https://rustsec.org) or CVE lookup, so it will never tell you a dependency version has a published advisory. Run `cargo audit` or `cargo deny` alongside it. ([tracked in the roadmap](ROADMAP.md))
+- **Patterns with lexical context, not semantic analysis.** There is no AST, type information, data flow, or taint tracking. It knows a line is code rather than a comment or a string, and it knows which function and unsafe block a line sits in. It does not know where a pointer came from.
+- **Risk level tracks volume and severity, not exploitability.** A crate that uses `unsafe` deliberately — SIMD, allocators, FFI bindings — will read `high_risk` because it has many findings, not because it is dangerous. memchr reports 374 findings in real source; memchr is fine. Read the findings, not the label.
+- **A reviewed, documented unsafe block is still reported.** A nearby `SAFETY:` comment lowers the confidence but does not remove the finding, because the tool cannot check whether the comment is true. That is what accepted-risk suppressions are for.
+- **A bare `#[tokio::test]` counts as production code** unless it sits inside a `#[cfg(test)]` module. Only Rust's own `#[test]` and a `cfg` that definitely requires `test` lower a finding's severity — any other attribute path could be a macro that compiles in a release build.
+- **Dependency review reads manifests, not the resolved graph.** It inspects `Cargo.toml`, `Cargo.lock`, `build.rs`, and `.cargo/config.toml`. It does not resolve transitive dependencies, check for yanked crates, or evaluate feature unification.
 - Not formal verification, symbolic execution, or a replacement for human review of unsafe invariants.
 - Not a hosted service, SaaS scanner, or uploaded-code scanner. It reads local paths only.
 - Not a generic code review or style tool.
@@ -291,4 +315,4 @@ See [SECURITY.md](SECURITY.md) for reporting a vulnerability in this tool and fo
 
 ## Status
 
-v0.1.x local-first MCP preview. Local, read-only Rust review — not a hosted scanner, ChatGPT App, or marketplace product. Publication, tag, release, registry state, and client-support claims are **HOLD** pending owner verification; a passing local test suite does not publish a package. See [ROADMAP.md](ROADMAP.md).
+v0.1.x local-first MCP preview, released under Apache-2.0. Local, read-only Rust review — not a hosted scanner, ChatGPT App, or marketplace product. The latest release is [v0.1.2](https://github.com/lihytaihe-lang/rust-security-auditor/releases/tag/v0.1.2); nothing is published to npm yet. See [ROADMAP.md](ROADMAP.md) for what is planned and what is deliberately out of scope.
