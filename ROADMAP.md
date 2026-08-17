@@ -2,7 +2,7 @@
 
 ## Shipped
 
-Released as [v0.1.4](https://github.com/lihytaihe-lang/rust-security-auditor/releases/tag/v0.1.4).
+Released as [v0.1.5](https://github.com/lihytaihe-lang/rust-security-auditor/releases/tag/v0.1.5).
 
 - Local stdio MCP server with five read-only tools, and configuration references for the common MCP clients.
 - Heuristic Rust scanner with comment and literal awareness: 25 rules across unsafe/FFI, Cargo dependency and build-script review, `.cargo/config.toml`, and runtime process execution.

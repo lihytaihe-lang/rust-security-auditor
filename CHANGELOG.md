@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses [semantic versioning](https://semver.org/) — while it is pre-1.0, breaking changes may land in a minor release.
 
+## [0.1.5] - 2026-08-17
+
+### Changed
+
+- The published tarball now carries `README.zh-CN.md`, so the Chinese documentation ships with the package instead of only existing on GitHub.
+- `repository.url` uses the canonical `git+https://` form, which is what npm matches a provenance attestation against.
+
+No source changes.
+
 ## [0.1.4] - 2026-08-12
 
 ### Fixed
