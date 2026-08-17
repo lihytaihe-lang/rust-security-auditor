@@ -2,7 +2,21 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses [semantic versioning](https://semver.org/) — while it is pre-1.0, breaking changes may land in a minor release.
 
+## [0.1.7] - 2026-08-17
+
+The first automated release. 0.1.6 was tagged and released on GitHub but never reached npm — see below.
+
+### Fixed
+
+- **The release gate could not read `npm pack --json` under npm 12.** npm 11 and earlier return an array of packed entries; npm 12 returns an object keyed by package name, so reading `packed[0].filename` produced nothing and `verify:package` aborted the 0.1.6 publish. It now reads both shapes ([`scripts/verify-public-package.mjs`](scripts/verify-public-package.mjs)).
+
+### Added
+
+- **CI runs the release gate on the npm the release job uses.** The publish job installs `npm@latest` because trusted publishing needs a newer npm than the runner ships, which made that gate the one step running on an npm nothing else covered. A pull request now fails on that skew instead of a release doing it ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+
 ## [0.1.6] - 2026-08-17
+
+Tagged and released on GitHub, but the publish job failed before uploading, so this version does not exist on npm. Use 0.1.7.
 
 ### Added
 

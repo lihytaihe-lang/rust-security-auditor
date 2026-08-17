@@ -80,3 +80,34 @@ jobs:
 
       - name: Verify real package contents and installed stdio boundary
         run: npm run verify:package
+
+  release-gate:
+    # The release job installs npm@latest, because trusted publishing needs a
+    # newer npm than the runner ships. That made the release gate the only step
+    # running on an npm nothing else tested, and npm 12 changing the shape of
+    # `npm pack --json` broke a release rather than a pull request. This runs
+    # the same gate on the same npm, so that skew fails here first.
+    name: Release gate on npm@latest
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Use the npm the release job uses
+        run: npm install -g npm@latest
+
+      - name: Report the npm under test
+        run: npm --version
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify real package contents and installed stdio boundary
+        run: npm run verify:package

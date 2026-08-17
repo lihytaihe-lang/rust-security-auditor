@@ -383,4 +383,4 @@ server 会校验 `projectPath` 存在且是本地目录，只在其内部扫描�
 
 ## 状态
 
-Apache-2.0 许可。最新发布是 [v0.1.6](https://github.com/lihytaihe-lang/rust-security-auditor/releases/tag/v0.1.6)，已发布到 npm，包名 [`rust-security-auditor`](https://www.npmjs.com/package/rust-security-auditor)。计划中的内容和有意排除在外的内容见 [ROADMAP.md](ROADMAP.md)。
+Apache-2.0 许可。最新发布是 [v0.1.7](https://github.com/lihytaihe-lang/rust-security-auditor/releases/tag/v0.1.7)，已发布到 npm，包名 [`rust-security-auditor`](https://www.npmjs.com/package/rust-security-auditor)。计划中的内容和有意排除在外的内容见 [ROADMAP.md](ROADMAP.md)。

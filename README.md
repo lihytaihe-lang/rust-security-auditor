@@ -383,4 +383,4 @@ See [SECURITY.md](SECURITY.md) for reporting a vulnerability in this tool and fo
 
 ## Status
 
-Apache-2.0. The latest release is [v0.1.6](https://github.com/lihytaihe-lang/rust-security-auditor/releases/tag/v0.1.6), published on npm as [`rust-security-auditor`](https://www.npmjs.com/package/rust-security-auditor). [ROADMAP.md](ROADMAP.md) covers what is planned and what is deliberately out of scope.
+Apache-2.0. The latest release is [v0.1.7](https://github.com/lihytaihe-lang/rust-security-auditor/releases/tag/v0.1.7), published on npm as [`rust-security-auditor`](https://www.npmjs.com/package/rust-security-auditor). [ROADMAP.md](ROADMAP.md) covers what is planned and what is deliberately out of scope.
