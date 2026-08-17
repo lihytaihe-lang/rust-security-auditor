@@ -20,7 +20,7 @@
   },
   "codexMcpConfigurationReference": {
     "file": "~/.codex/config.toml or .codex/config.toml in a trusted project",
-    "toml": "[mcp_servers.rust_security_auditor]\ncommand = \"node\"\nargs = [\"/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js\"]",
+    "toml": "[mcp_servers.rust_security_auditor]\ncommand = \"npx\"\nargs = [\"--yes\", \"rust-security-auditor\"]",
     "status": "configuration-reference-only"
   },
   "tools": [
@@ -92,7 +92,7 @@
     }
   ],
   "stdioNotes": [
-    "Build the local checkout with npm run build, then run node with the absolute dist/src/mcp/server.js path.",
+    "Run npx --yes rust-security-auditor, or build a local checkout with npm run build and run node with the absolute dist/src/mcp/server.js path.",
     "MCP stdio stdout must contain only JSON-RPC protocol frames. Ordinary logs must not pollute stdout.",
     "The server scans local project paths passed by Codex. It does not require uploading code packages."
   ],
@@ -101,11 +101,18 @@
     "This is not a SaaS upload flow.",
     "This is not a web UI."
   ],
-  "primaryLocalCheckout": {
+  "primaryLaunch": {
+    "command": "npx",
+    "args": [
+      "--yes",
+      "rust-security-auditor"
+    ]
+  },
+  "localCheckout": {
     "command": "node",
     "args": [
       "/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"
     ],
-    "note": "Primary checkout configuration reference; use after npm ci and npm run build."
+    "note": "Alternative to the published package; use after npm ci and npm run build."
   }
 }

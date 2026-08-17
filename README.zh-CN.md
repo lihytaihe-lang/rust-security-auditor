@@ -106,9 +106,24 @@ Set includeNonShippedSources to include them.
 
 需要 Node.js 20 或更高版本。**不需要 Rust 工具链**——扫描器读源码和清单文件，不构建你的项目。
 
-### 主路径：本地 checkout
+### 主路径：npx
 
-克隆、安装依赖、构建一次：
+不用克隆，也不用构建。让 MCP 客户端直接指向已发布的包：
+
+```json
+{
+  "command": "npx",
+  "args": ["--yes", "rust-security-auditor"]
+}
+```
+
+npx 会在首次使用时拉取并缓存。要锁定版本，把包名写成 `rust-security-auditor@0.1.6`。
+
+发布由 GitHub Actions 通过 npm trusted publishing 完成，因此这个包不存在任何长期有效的发布 token，且每个已发布版本都带有 provenance 证明，把 tarball 和产出它的那次提交与工作流运行绑定在一起。用 `npm view rust-security-auditor dist.attestations` 可以看到。
+
+### 备选：本地 checkout
+
+想跑改过的代码，或者所在环境不接受启动时从 registry 拉取，走这条。
 
 ```bash
 git clone https://github.com/lihytaihe-lang/rust-security-auditor.git
@@ -117,7 +132,7 @@ npm ci
 npm run build
 ```
 
-让 MCP 客户端直接指向这份 checkout 构建出的 server。它的标准输入输出保留给 JSON-RPC，日志走 stderr。
+然后让客户端指向这份 checkout 构建出的 server。它的标准输入输出保留给 JSON-RPC，日志走 stderr。
 
 ```json
 {
@@ -126,7 +141,7 @@ npm run build
 }
 ```
 
-要审查的 Rust 项目通过工具参数 `projectPath` 传入绝对路径；server 进程本身不需要运行在那个项目目录下。
+要审查的 Rust 项目通过工具参数 `projectPath` 传入绝对路径；server 进程本身不需要运行在那个项目目录下。两条路径都一样。
 
 ### 客户端配置
 
@@ -137,7 +152,7 @@ Claude Desktop 是唯一需要单独说明的：它当前的流程期待的是 D
 **Claude Code**
 
 ```bash
-claude mcp add --transport stdio rust-security-auditor -- node /absolute/path/to/rust-security-auditor/dist/src/mcp/server.js
+claude mcp add --transport stdio rust-security-auditor -- npx --yes rust-security-auditor
 ```
 
 **Codex CLI / app / IDE 扩展**
@@ -145,14 +160,14 @@ claude mcp add --transport stdio rust-security-auditor -- node /absolute/path/to
 ```toml
 # ~/.codex/config.toml 或某个可信项目的 .codex/config.toml
 [mcp_servers.rust_security_auditor]
-command = "node"
-args = ["/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"]
+command = "npx"
+args = ["--yes", "rust-security-auditor"]
 ```
 
 对应的 Codex CLI 命令：
 
 ```bash
-codex mcp add rust-security-auditor -- node /absolute/path/to/rust-security-auditor/dist/src/mcp/server.js
+codex mcp add rust-security-auditor -- npx --yes rust-security-auditor
 ```
 
 **Cursor**
@@ -161,8 +176,8 @@ codex mcp add rust-security-auditor -- node /absolute/path/to/rust-security-audi
 {
   "mcpServers": {
     "rust-security-auditor": {
-      "command": "node",
-      "args": ["/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"]
+      "command": "npx",
+      "args": ["--yes", "rust-security-auditor"]
     }
   }
 }
@@ -176,8 +191,8 @@ Cursor 的配置块放进项目的 `.cursor/mcp.json`，或用户级的 `~/.curs
 {
   "servers": {
     "rustSecurityAuditor": {
-      "command": "node",
-      "args": ["/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"]
+      "command": "npx",
+      "args": ["--yes", "rust-security-auditor"]
     }
   }
 }
@@ -197,9 +212,7 @@ VS Code 的配置块放进 `.vscode/mcp.json`，或通过 **MCP: Open User Confi
 
 机器可读版本见 [`examples/mcp-client-config.json`](examples/mcp-client-config.json) 和 [`examples/codex-plugin-config.json`](examples/codex-plugin-config.json)。
 
-### npm
-
-尚未发布。发布之后，`npx --yes rust-security-auditor` 就能取代整个 clone + 构建的步骤。打包配置已经就绪，CI 每次都会验证——`npm run verify:package` 会打出 tarball、全新安装、并通过安装好的可执行文件完成一次 MCP 握手——所以发布时这条路是通的。
+上面每个配置块用的都是 npx。想改用本地 checkout，把 command 换成 `node`、参数换成那份 checkout 的 `dist/src/mcp/server.js` 绝对路径即可。
 
 不接客户端、只想调试 checkout 的话，`npm --silent run mcp` 会重新构建并启动。
 
@@ -370,4 +383,4 @@ server 会校验 `projectPath` 存在且是本地目录，只在其内部扫描�
 
 ## 状态
 
-Apache-2.0 许可。最新发布是 [v0.1.5](https://github.com/lihytaihe-lang/rust-security-auditor/releases/tag/v0.1.5)；尚未发布到 npm。计划中的内容和有意排除在外的内容见 [ROADMAP.md](ROADMAP.md)。
+Apache-2.0 许可。最新发布是 [v0.1.6](https://github.com/lihytaihe-lang/rust-security-auditor/releases/tag/v0.1.6)，已发布到 npm，包名 [`rust-security-auditor`](https://www.npmjs.com/package/rust-security-auditor)。计划中的内容和有意排除在外的内容见 [ROADMAP.md](ROADMAP.md)。

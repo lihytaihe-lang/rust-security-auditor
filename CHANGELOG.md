@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses [semantic versioning](https://semver.org/) — while it is pre-1.0, breaking changes may land in a minor release.
 
+## [0.1.6] - 2026-08-17
+
+### Added
+
+- **Releases publish themselves.** A published GitHub release now runs `npm publish` through npm trusted publishing (OIDC). No npm token exists for this package, so there is no publish credential to leak, and every published version carries a provenance attestation tying the tarball to the commit and workflow run that produced it. The workflow refuses to run when the release tag disagrees with `package.json`, and runs the same typecheck, test, and real-install gates CI runs ([`.github/workflows/publish.yml`](.github/workflows/publish.yml)).
+
+### Changed
+
+- **`npx --yes rust-security-auditor` is the documented install path**, in place of clone-and-build. Every client configuration example in both translations uses it. The local checkout stays documented as the alternative, for running modified code or where fetching from a registry at launch is not acceptable.
+- The docs-drift test now guards that inversion: the published launch has to stay primary in both translations and both machine-readable references, and the checkout path has to stay documented.
+
+No source changes.
+
 ## [0.1.5] - 2026-08-17
 
 ### Changed
