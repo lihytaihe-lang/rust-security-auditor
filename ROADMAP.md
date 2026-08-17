@@ -2,7 +2,7 @@
 
 ## Shipped
 
-Released as [v0.1.5](https://github.com/lihytaihe-lang/rust-security-auditor/releases/tag/v0.1.5).
+Released as [v0.1.6](https://github.com/lihytaihe-lang/rust-security-auditor/releases/tag/v0.1.6).
 
 - Local stdio MCP server with five read-only tools, and configuration references for the common MCP clients.
 - Heuristic Rust scanner with comment and literal awareness: 25 rules across unsafe/FFI, Cargo dependency and build-script review, `.cargo/config.toml`, and runtime process execution.
@@ -11,12 +11,12 @@ Released as [v0.1.5](https://github.com/lihytaihe-lang/rust-security-auditor/rel
 - Accepted-risk suppressions carrying an owner, ticket, and expiry, plus an inventory tool.
 - Markdown and JSON output in compact and full modes.
 - Cross-platform CI on Node 20/22/24 across Linux, macOS, and Windows, plus CodeQL and a real package-install check.
+- Published on npm as `rust-security-auditor`, so installation is one command instead of a clone and build. Releases run from GitHub Actions through npm trusted publishing: no long-lived publish token exists for this package, and every published version carries a provenance attestation.
 
 ## Next
 
 - **Known-vulnerability coverage.** There is no RustSec advisory or CVE lookup today, which is the most common expectation the project name sets. The intended shape is an optional integration: detect a local `cargo-audit` or `cargo-deny` installation, run it, and map its results into the existing `Finding` schema so advisories appear alongside heuristic findings; degrade with a clear message when neither is installed. Bundling or fetching the advisory database is explicitly not planned — that would turn a local, offline, read-only tool into one that needs network access and database maintenance.
 - **Risk level that reflects exploitability, not volume.** A crate that uses `unsafe` deliberately reads `high_risk` because it has many findings. The label is currently misleading on exactly the crates most worth auditing.
-- npm publication, so installation is one command instead of a clone and build.
 - Cargo profile and lint review, such as `panic = "abort"` at an FFI boundary and `overflow-checks = false` in release.
 - Reporting `#![forbid(unsafe_code)]` as a positive signal rather than staying silent.
 

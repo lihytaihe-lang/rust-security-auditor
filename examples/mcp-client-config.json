@@ -1,30 +1,21 @@
 {
   "serverName": "rust-security-auditor",
-  "status": "configuration-reference-only",
-  "primaryLocalCheckoutServer": "/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js",
+  "status": "configuration-reference",
   "primaryLaunch": {
-    "command": "node",
-    "args": [
-      "/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"
-    ]
-  },
-  "optionalPublishedPackage": {
-    "status": "not-published",
     "command": "npx",
     "args": [
       "--yes",
       "rust-security-auditor"
-    ],
-    "note": "Use only after an owner-approved npm release; this is not the primary checkout path."
+    ]
   },
   "hostConfigurationReferences": {
     "claudeCode": {
-      "command": "claude mcp add --transport stdio rust-security-auditor -- node /absolute/path/to/rust-security-auditor/dist/src/mcp/server.js",
+      "command": "claude mcp add --transport stdio rust-security-auditor -- npx --yes rust-security-auditor",
       "status": "configuration-reference-only"
     },
     "codex": {
       "file": "~/.codex/config.toml or .codex/config.toml in a trusted project",
-      "toml": "[mcp_servers.rust_security_auditor]\ncommand = \"node\"\nargs = [\"/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js\"]",
+      "toml": "[mcp_servers.rust_security_auditor]\ncommand = \"npx\"\nargs = [\"--yes\", \"rust-security-auditor\"]",
       "status": "configuration-reference-only"
     },
     "cursor": {
@@ -32,9 +23,10 @@
       "contents": {
         "mcpServers": {
           "rust-security-auditor": {
-            "command": "node",
+            "command": "npx",
             "args": [
-              "/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"
+              "--yes",
+              "rust-security-auditor"
             ]
           }
         }
@@ -46,9 +38,10 @@
       "contents": {
         "servers": {
           "rustSecurityAuditor": {
-            "command": "node",
+            "command": "npx",
             "args": [
-              "/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"
+              "--yes",
+              "rust-security-auditor"
             ]
           }
         }
@@ -113,7 +106,7 @@
   "troubleshooting": [
     {
       "symptom": "MCP client fails while starting or parsing the first message.",
-      "check": "Build the local checkout with npm run build, then configure node with the absolute dist/src/mcp/server.js path. npm --silent run mcp is only a checkout debugging command because it rebuilds before launch."
+      "check": "Configure npx --yes rust-security-auditor, or, when running a checkout, build it with npm run build and point node at the absolute dist/src/mcp/server.js path. npm --silent run mcp is only a checkout debugging command because it rebuilds before launch."
     },
     {
       "symptom": "Tool returns PROJECT_PATH_NOT_FOUND.",
@@ -142,9 +135,10 @@
       "configLocation": "MCP settings -> + Add opens a JSON editor",
       "mcpServers": {
         "rust-security-auditor": {
-          "command": "node",
+          "command": "npx",
           "args": [
-            "/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"
+            "--yes",
+            "rust-security-auditor"
           ]
         }
       }
@@ -153,9 +147,10 @@
       "configLocation": ".zcode/config.json",
       "mcpServers": {
         "rust-security-auditor": {
-          "command": "node",
+          "command": "npx",
           "args": [
-            "/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"
+            "--yes",
+            "rust-security-auditor"
           ]
         }
       }
@@ -164,12 +159,21 @@
       "configLocation": "~/.kimi-code/mcp.json or .kimi-code/mcp.json",
       "mcpServers": {
         "rust-security-auditor": {
-          "command": "node",
+          "command": "npx",
           "args": [
-            "/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"
+            "--yes",
+            "rust-security-auditor"
           ]
         }
       }
     }
-  }
+  },
+  "localCheckoutLaunch": {
+    "command": "node",
+    "args": [
+      "/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"
+    ],
+    "note": "Alternative to the published package; use after npm ci and npm run build."
+  },
+  "localCheckoutServer": "/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"
 }

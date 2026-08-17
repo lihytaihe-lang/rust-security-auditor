@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describe, it } from "node:test";
 
+const publishedLaunch = { command: "npx", args: ["--yes", "rust-security-auditor"] };
 const checkoutServer = "/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js";
 const translations = ["README.md", "README.zh-CN.md"] as const;
 
@@ -11,8 +12,8 @@ async function readTranslations(): Promise<Map<string, string>> {
   return new Map(translations.map((file, index) => [file, contents[index] ?? ""]));
 }
 
-describe("local checkout installation references", () => {
-  it("makes the built checkout server the primary client command", async () => {
+describe("installation references", () => {
+  it("makes the published package the primary client command", async () => {
     const [clientReferenceText, codexReferenceText] = await Promise.all([
       readFile(resolve("examples/mcp-client-config.json"), "utf8"),
       readFile(resolve("examples/codex-plugin-config.json"), "utf8")
@@ -23,21 +24,37 @@ describe("local checkout installation references", () => {
     // Every translation has to carry runnable instructions, not just the one a
     // maintainer happens to edit.
     for (const [file, readme] of await readTranslations()) {
+      assert.match(readme, /npx --yes rust-security-auditor/, `${file} lost the published launch command`);
+    }
+
+    assert.deepEqual(clientReference.primaryLaunch, publishedLaunch);
+    assert.deepEqual(codexReference.primaryLaunch, publishedLaunch);
+    assert.match(JSON.stringify(codexReference), /command = \\"npx\\"/);
+  });
+
+  it("keeps the local checkout documented as the alternative", async () => {
+    // Running modified code, and running where fetching from a registry at
+    // launch is not acceptable, both depend on this path staying documented.
+    const clientReference = JSON.parse(await readFile(resolve("examples/mcp-client-config.json"), "utf8")) as Record<
+      string,
+      unknown
+    >;
+
+    for (const [file, readme] of await readTranslations()) {
       assert.match(readme, /npm ci\s*\n\s*npm run build/, `${file} lost the build step`);
       assert.match(
         readme,
-        new RegExp(`node ${checkoutServer.replaceAll("/", "\\/")}`),
+        new RegExp(`node ${checkoutServer.replaceAll("/", "\\/")}|"${checkoutServer.replaceAll("/", "\\/")}"`),
         `${file} lost the checkout server command`
       );
     }
 
-    assert.equal(clientReference.primaryLocalCheckoutServer, checkoutServer);
-    assert.deepEqual(clientReference.primaryLaunch, {
+    assert.equal(clientReference.localCheckoutServer, checkoutServer);
+    assert.deepEqual(clientReference.localCheckoutLaunch, {
       command: "node",
-      args: [checkoutServer]
+      args: [checkoutServer],
+      note: "Alternative to the published package; use after npm ci and npm run build."
     });
-    assert.match(JSON.stringify(codexReference), /command = \\"node\\"/);
-    assert.match(JSON.stringify(codexReference), /dist\/src\/mcp\/server\.js/);
   });
 
   it("keeps the translations linked to each other and structurally aligned", async () => {

@@ -1,0 +1,61 @@
+name: Publish
+
+# Publishing runs on a published GitHub release, never on a branch push, so the
+# tag is the only thing that can ship a version.
+#
+# There is no npm token here and there is no secret to leak. The registry
+# authenticates this workflow through OIDC against the trusted publisher
+# configured for the package, which also means npm attaches a provenance
+# attestation tying the tarball to this repository and this run.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  # Lets the runner mint the short-lived OIDC token npm exchanges for publish
+  # rights. It grants nothing else.
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm 11.5.1 or later, which is newer than the
+      # npm bundled with the runner's Node.
+      - name: Use an npm that can publish through OIDC
+        run: npm install -g npm@latest
+
+      - name: Refuse a release tag that disagrees with package.json
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          declared="$(node -p 'require("./package.json").version')"
+          if [ "$tag" != "$declared" ]; then
+            echo "Release tag $GITHUB_REF_NAME does not match package version $declared" >&2
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The same gates CI runs. A release must not be the first place they fail.
+      - name: Typecheck and test
+        run: npm run check
+
+      - name: Verify real package install and stdio boundary
+        run: npm run verify:package
+
+      - name: Publish
+        run: npm publish

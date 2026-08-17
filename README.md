@@ -106,9 +106,24 @@ Pass `includeNonShippedSources: true` to `rust_audit_project` to include them. `
 
 Requires Node.js 20 or newer. No Rust toolchain needed — the scanner reads source and manifests, it does not build your project.
 
-### Primary path: local checkout
+### Primary path: npx
 
-Clone, install dependencies, and build once:
+Nothing to clone and nothing to build. Point the MCP client at the published package:
+
+```json
+{
+  "command": "npx",
+  "args": ["--yes", "rust-security-auditor"]
+}
+```
+
+npx fetches it on first use and caches it. Append `@0.1.6` to the package name to pin a version.
+
+Releases are published from GitHub Actions through npm trusted publishing, so no long-lived publish token exists for this package and every published version carries a provenance attestation tying the tarball to the commit and workflow run that produced it. `npm view rust-security-auditor dist.attestations` shows it.
+
+### Alternative: local checkout
+
+Use this to run modified code, or anywhere fetching from a registry at launch is not acceptable.
 
 ```bash
 git clone https://github.com/lihytaihe-lang/rust-security-auditor.git
@@ -117,7 +132,7 @@ npm ci
 npm run build
 ```
 
-Point the MCP client directly at that checkout's built server. Its standard input and output are reserved for JSON-RPC; logs go to stderr.
+Point the client at that checkout's built server instead. Its standard input and output are reserved for JSON-RPC; logs go to stderr.
 
 ```json
 {
@@ -126,7 +141,7 @@ Point the MCP client directly at that checkout's built server. Its standard inpu
 }
 ```
 
-Pass the Rust project as the tool's absolute `projectPath`; the server process does not need to run from that project directory.
+Pass the Rust project as the tool's absolute `projectPath`; the server process does not need to run from that project directory. This applies to both paths.
 
 ### Client configuration
 
@@ -137,7 +152,7 @@ Claude Desktop is the exception worth calling out: its current flow expects a De
 **Claude Code**
 
 ```bash
-claude mcp add --transport stdio rust-security-auditor -- node /absolute/path/to/rust-security-auditor/dist/src/mcp/server.js
+claude mcp add --transport stdio rust-security-auditor -- npx --yes rust-security-auditor
 ```
 
 **Codex CLI, app, and IDE extension**
@@ -145,14 +160,14 @@ claude mcp add --transport stdio rust-security-auditor -- node /absolute/path/to
 ```toml
 # ~/.codex/config.toml or a trusted project's .codex/config.toml
 [mcp_servers.rust_security_auditor]
-command = "node"
-args = ["/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"]
+command = "npx"
+args = ["--yes", "rust-security-auditor"]
 ```
 
 The equivalent Codex CLI command is:
 
 ```bash
-codex mcp add rust-security-auditor -- node /absolute/path/to/rust-security-auditor/dist/src/mcp/server.js
+codex mcp add rust-security-auditor -- npx --yes rust-security-auditor
 ```
 
 **Cursor**
@@ -161,8 +176,8 @@ codex mcp add rust-security-auditor -- node /absolute/path/to/rust-security-audi
 {
   "mcpServers": {
     "rust-security-auditor": {
-      "command": "node",
-      "args": ["/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"]
+      "command": "npx",
+      "args": ["--yes", "rust-security-auditor"]
     }
   }
 }
@@ -176,8 +191,8 @@ Put the Cursor block in `.cursor/mcp.json` for a project or `~/.cursor/mcp.json`
 {
   "servers": {
     "rustSecurityAuditor": {
-      "command": "node",
-      "args": ["/absolute/path/to/rust-security-auditor/dist/src/mcp/server.js"]
+      "command": "npx",
+      "args": ["--yes", "rust-security-auditor"]
     }
   }
 }
@@ -197,9 +212,7 @@ Host formats and configuration locations change independently, so recheck the [C
 
 Machine-readable versions of these blocks live in [`examples/mcp-client-config.json`](examples/mcp-client-config.json) and [`examples/codex-plugin-config.json`](examples/codex-plugin-config.json).
 
-### npm
-
-Not published yet. Once it is, `npx --yes rust-security-auditor` replaces the whole clone-and-build step. The packaging is already in place and CI verifies it on every run — `npm run verify:package` builds a tarball, installs it fresh, and completes an MCP handshake through the installed binary — so that path is ready when the release happens.
+Each block above uses npx. To run a checkout instead, swap the command for `node` and the argument for that checkout's absolute `dist/src/mcp/server.js` path.
 
 For debugging a checkout without a client, `npm --silent run mcp` rebuilds and launches in one step.
 
@@ -370,4 +383,4 @@ See [SECURITY.md](SECURITY.md) for reporting a vulnerability in this tool and fo
 
 ## Status
 
-Apache-2.0. The latest release is [v0.1.5](https://github.com/lihytaihe-lang/rust-security-auditor/releases/tag/v0.1.5); not on npm yet. [ROADMAP.md](ROADMAP.md) covers what is planned and what is deliberately out of scope.
+Apache-2.0. The latest release is [v0.1.6](https://github.com/lihytaihe-lang/rust-security-auditor/releases/tag/v0.1.6), published on npm as [`rust-security-auditor`](https://www.npmjs.com/package/rust-security-auditor). [ROADMAP.md](ROADMAP.md) covers what is planned and what is deliberately out of scope.
