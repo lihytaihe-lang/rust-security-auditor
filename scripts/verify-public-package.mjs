@@ -19,8 +19,7 @@ const installDirectory = join(temporaryRoot, "install");
 try {
   await mkdir(packDirectory, { recursive: true });
   const pack = await run(npmCommand(), ["pack", "--json", "--pack-destination", packDirectory], { cwd: repoRoot });
-  const packed = JSON.parse(pack.stdout);
-  const filename = packed[0]?.filename;
+  const filename = packedTarballFilename(JSON.parse(pack.stdout));
   if (typeof filename !== "string" || filename.length === 0) throw new Error("npm pack did not return a tarball filename.");
   const tarballPath = join(packDirectory, filename);
   const entries = unpackTarGz(await readFile(tarballPath));
@@ -39,6 +38,17 @@ try {
   process.stdout.write(`verified ${filename}: tarball boundary, fresh install, .bin launch, and stdio MCP handshake passed\n`);
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });
+}
+
+/**
+ * `npm pack --json` reports one packed tarball two different ways. npm 11 and
+ * earlier return an array of entries; npm 12 returns an object keyed by package
+ * name. This runs as the release gate under whichever npm the release job
+ * installed, so it has to read both rather than assume the local one.
+ */
+function packedTarballFilename(packed) {
+  const entries = Array.isArray(packed) ? packed : Object.values(packed ?? {});
+  return entries[0]?.filename;
 }
 
 function assertPublicPackageBoundary(entries) {
