@@ -1,6 +1,6 @@
 {
   "name": "rust-security-auditor",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Local stdio MCP server for focused Rust security review.",
   "type": "module",
   "main": "./dist/src/index.js",
@@ -47,7 +47,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/lihytaihe-lang/rust-security-auditor.git"
+    "url": "git+https://github.com/lihytaihe-lang/rust-security-auditor.git"
   },
   "bugs": {
     "url": "https://github.com/lihytaihe-lang/rust-security-auditor/issues"
@@ -58,6 +58,7 @@
     "examples/",
     "skills/",
     "README.md",
+    "README.zh-CN.md",
     "LICENSE",
     "CHANGELOG.md",
     "CONTRIBUTING.md",
